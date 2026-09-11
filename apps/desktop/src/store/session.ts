@@ -252,6 +252,7 @@ export function setRememberedRoute(path: null | string, profile: string): void {
 }
 
 let configuredDefaultProjectDir = ''
+let configuredGitWorkdir = ''
 
 function workspaceCwdKey(connection: HermesConnection | null = $connection.get()): string {
   if (connection?.mode !== 'remote') {
@@ -287,6 +288,10 @@ export async function syncConfiguredDefaultProjectDir(shouldPublish: () => boole
   }
 
   return configuredDefaultProjectDir
+}
+
+export function applyConfiguredGitWorkdir(dir: null | string | undefined): void {
+  configuredGitWorkdir = dir?.trim() || ''
 }
 
 /** Align the renderer workspace with the main-process default (home dir when

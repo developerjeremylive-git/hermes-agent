@@ -382,6 +382,190 @@ export interface Translations {
       about: string
       billing: string
       notifications: string
+      github: string
+      gitlab: string
+    }
+    gitProjects: {
+      tabConnection: string
+      tabProjects: string
+      tabRepositories: string
+    }
+    gitHub: {
+      title: string
+      notConnected: string
+      connectHint: string
+      waiting: string
+      loginStarting: string
+      loginUrlHint: string
+      enterCode: string
+      openBrowser: string
+      failed: string
+      connected: string
+      logout: string
+      workingFolder: string
+      workingFolderHint: string
+      noWorkingFolder: string
+      chooseWorkingFolder: string
+      createRepo: string
+      createRepoHint: string
+      creatingRepo: string
+      repoCreated: string
+      createRepoFailed: string
+      localRepositories: string
+      localRepositoriesHint: string
+      jDriveRepositories: string
+      jDriveRepositoriesHint: string
+      sortByName: string
+      sortByLastCommit: string
+      openRepoFolder: string
+      openRepoOnGitHub: string
+      openRepoFolderFailed: string
+      syncFork: (count: number) => string
+      syncForkHint: (count: number) => string
+      syncingFork: string
+      forkSynced: string
+      syncForkFailed: string
+      scanningRepos: string
+      noReposFound: string
+      useThisRepo: string
+      pullFromOrigin: (count: number) => string
+      pullFromOriginHint: string
+      pulling: string
+      updatedFromOrigin: string
+      pullFailed: string
+      pushToOrigin: (count: number) => string
+      pushToOriginHint: string
+      pushing: string
+      pushedToOrigin: string
+      pushFailed: string
+      refreshSync: string
+      branchHasConflicts: string
+      allConflictsResolved: string
+      branchAheadBehind: (ahead: number, behind: number) => string
+      resolveConflicts: string
+      loadingConflicts: string
+      noConflictsLeft: string
+      conflicted: string
+      conflictContentUnavailable: string
+      acceptOurs: string
+      acceptTheirs: string
+      acceptBoth: string
+      continueMerge: string
+      continueMergeHint: string
+      confirmAbort: string
+      abortMerge: string
+      mergeCompleted: string
+      mergeAborted: string
+      continueFailed: string
+      abortFailed: string
+      resolveFailed: string
+      resolveConflictsWithAgent: string
+      resolveConflictsWithAgentPrompt: string
+      notInsideRepo: string
+      workingFolderUpdated: string
+      configGlobal: string
+      configLocal: string
+      configSetSuccess: string
+      configSetFailed: string
+      setAccountTitle: string
+      setAccountHint: string
+      usernameLabel: string
+      openRepoOnGitLab: string
+      remoteRepositories: string
+      remoteRepositoriesHint: string
+      loadRepos: string
+      loadingRepos: string
+      listReposFailed: string
+      searchRepos: string
+      noRemoteReposFound: string
+      clone: string
+      cloneRepo: string
+      cloneRepoHint: string
+      cloneLocation: string
+      cloneLocationPlaceholder: string
+      cloning: string
+      cloneProgress: (phase: string, received: number, total: number) => string
+      cloneSuccess: (name: string) => string
+      cloneFailed: string
+      clonedTo: (path: string) => string
+    }
+    gitLab: {
+      title: string
+      notConnected: string
+      connectHint: string
+      connected: string
+      logout: string
+      loginFailed: string
+      tokenTitle: string
+      tokenHint: string
+      tokenLabel: string
+      tokenPlaceholder: string
+      createToken: string
+      workingFolder: string
+      workingFolderHint: string
+      noWorkingFolder: string
+      chooseWorkingFolder: string
+      createRepo: string
+      createRepoFailed: string
+      notInsideRepo: string
+      workingFolderUpdated: string
+      localRepositories: string
+      localRepositoriesHint: string
+      jDriveRepositories: string
+      jDriveRepositoriesHint: string
+      sortByName: string
+      sortByLastCommit: string
+      openRepoFolder: string
+      openRepoOnGitHub: string
+      openRepoOnGitLab: string
+      openRepoFolderFailed: string
+      syncFork: (count: number) => string
+      syncingFork: string
+      forkSynced: string
+      syncForkFailed: string
+      scanningRepos: string
+      noReposFound: string
+      useThisRepo: string
+      pullFromOrigin: (count: number) => string
+      pulling: string
+      updatedFromOrigin: string
+      pullFailed: string
+      pushToOrigin: (count: number) => string
+      pushing: string
+      pushedToOrigin: string
+      pushFailed: string
+      refreshSync: string
+      branchHasConflicts: string
+      allConflictsResolved: string
+      resolveConflicts: string
+      continueMerge: string
+      continueMergeHint: string
+      mergeCompleted: string
+      continueFailed: string
+      configGlobal: string
+      configLocal: string
+      configSetSuccess: string
+      configSetFailed: string
+      setAccountTitle: string
+      setAccountHint: string
+      usernameLabel: string
+      remoteRepositories: string
+      remoteRepositoriesHint: string
+      loadRepos: string
+      loadingRepos: string
+      listReposFailed: string
+      searchRepos: string
+      noRemoteReposFound: string
+      clone: string
+      cloneRepo: string
+      cloneRepoHint: string
+      cloneLocation: string
+      cloneLocationPlaceholder: string
+      cloning: string
+      cloneProgress: (phase: string, received: number, total: number) => string
+      cloneSuccess: (name: string) => string
+      cloneFailed: string
+      clonedTo: (path: string) => string
     }
     plugins: {
       title: string

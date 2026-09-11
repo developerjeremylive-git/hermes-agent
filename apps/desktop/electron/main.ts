@@ -201,6 +201,31 @@ import {
 import { startGatewaysAfterUpdateAbort, stopGatewayBeforeUpdate } from './gateway-stop-before-update'
 import { probeGatewayWebSocket } from './gateway-ws-probe'
 import { registerGitIpc } from './git-ipc'
+import {
+  cancelGhLogin,
+  ghCloneRepo,
+  ghListRepos,
+  ghLogin,
+  ghLogout,
+  ghProfile,
+  glCloneRepo,
+  glListRepos,
+  glLoginWithToken,
+  glLogout,
+  glProfile,
+  repoAbortMerge,
+  repoConflictFiles,
+  repoContinueMerge,
+  repoGitConfigGet,
+  repoGitConfigSet,
+  repoPull,
+  repoPush,
+  repoResolveConflict,
+  repoSyncFork,
+  repoSyncInfo
+} from './git-review-ops'
+import { gitRootForIpc } from './git-root'
+import { initRepository } from './git-worktree-ops'
 import { clearStaleGitLocks } from './gitlock'
 import { readAndConsumeHandoffResult } from './handoff-result'
 import {
@@ -2960,6 +2985,50 @@ function resolveGhBinary() {
   return _ghBinaryCache
 }
 
+// resolveGlabBinary — locate the GitLab CLI, mirroring resolveGhBinary: the
+// GUI-launched PATH omits the package-manager bins where `glab` usually lives,
+// so probe the common install locations first, then PATH. Cached after probe.
+let _glabBinaryCache = null
+
+function resolveGlabBinary() {
+  if (_glabBinaryCache) {
+    return _glabBinaryCache
+  }
+
+  const candidates = []
+
+  // Check bundled glab first (shipped with the app via extraResources)
+  if (process.resourcesPath) {
+    const bundledGlab = IS_WINDOWS
+      ? path.join(process.resourcesPath, 'glab', 'glab.exe')
+      : path.join(process.resourcesPath, 'glab', 'glab')
+    candidates.push(bundledGlab)
+  }
+
+  // Development mode: check build/ directory (binaries downloaded during npm run build)
+  if (!IS_PACKAGED) {
+    const devGlab = IS_WINDOWS
+      ? path.join(app.getAppPath(), 'build', 'glab', 'glab.exe')
+      : path.join(app.getAppPath(), 'build', 'glab', 'glab')
+    candidates.push(devGlab)
+  }
+
+  if (IS_WINDOWS) {
+    candidates.push(path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'GitLab CLI', 'glab.exe'))
+
+    if (process.env.LOCALAPPDATA) {
+      candidates.push(path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'glab.exe'))
+    }
+  } else {
+    const home = app.getPath('home')
+    candidates.push('/opt/homebrew/bin/glab', '/usr/local/bin/glab', '/usr/bin/glab', path.join(home, '.local', 'bin', 'glab'))
+  }
+
+  _glabBinaryCache = candidates.find(fileExists) || findOnPath('glab') || 'glab'
+
+  return _glabBinaryCache
+}
+
 function recentHermesLog() {
   return hermesLog.slice(-20).join('\n')
 }
@@ -4825,9 +4894,11 @@ function resolveHermesCwd() {
   // `…/win-unpacked` on Windows or `/Applications/Hermes.app/Contents/...`
   // on macOS). Sessions spawned there leave files inside the app bundle
   // and bewilder users when "where did my files go?" is the install dir.
-  // The user-configurable default project directory wins over everything,
-  // followed by env hints (only honored when packaged if they point at a
-  // real directory), then the home dir.
+  // The user-configurable default project directory wins over env hints
+  // (only honored when packaged if they point at a real directory), then
+  // the home dir. The git workdir is for clone targets only — it must NOT
+  // override the session CWD or the backend would discover repos in the
+  // wrong project tree.
   const candidates = [
     readDefaultProjectDir(),
     process.env.HERMES_DESKTOP_CWD,
@@ -4874,6 +4945,44 @@ function sanitizeWorkspaceCwd(cwd) {
   }
 
   return { cwd: resolveHermesCwd(), sanitized: Boolean(trimmed) }
+}
+
+const GIT_WORKDIR_CONFIG_FILENAME = 'git-workdir.json'
+
+function gitWorkdirConfigPath() {
+  return path.join(app.getPath('userData'), GIT_WORKDIR_CONFIG_FILENAME)
+}
+
+function readGitWorkdir() {
+  try {
+    const raw = fs.readFileSync(gitWorkdirConfigPath(), 'utf8')
+    const parsed = JSON.parse(raw)
+
+    if (parsed && typeof parsed.dir === 'string' && parsed.dir.trim()) {
+      const resolved = path.resolve(parsed.dir)
+
+      if (directoryExists(resolved)) {
+        return resolved
+      }
+    }
+  } catch {
+    // Missing / unreadable / malformed → fall through to the rest of the
+    // candidate chain.
+  }
+
+  return null
+}
+
+function writeGitWorkdir(dir) {
+  const target = gitWorkdirConfigPath()
+  const payload = dir ? JSON.stringify({ dir: path.resolve(dir) }, null, 2) : JSON.stringify({}, null, 2)
+
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    fs.writeFileSync(target, payload, 'utf8')
+  } catch (error) {
+    rememberLog(`[settings] write git workdir failed: ${error.message}`)
+  }
 }
 
 // Persisted "Default project directory" — surfaced as a setting in the
@@ -17499,6 +17608,153 @@ registerFsIpc({
 
 // Git-driven features (worktrees, review pane, repo scan) — see git-ipc.ts.
 registerGitIpc({ resolveGitBinary, resolveGhBinary })
+
+ipcMain.handle('hermes:git:ghProfile', () => ghProfile(resolveGhBinary()))
+
+ipcMain.handle('hermes:git:ghLoginStart', () =>
+  ghLogin(resolveGhBinary(), ok => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return
+    }
+
+    mainWindow.webContents.send('hermes:git:ghLoginEvent', { ok })
+  })
+)
+
+ipcMain.handle('hermes:git:ghLoginCancel', () => {
+  cancelGhLogin()
+
+  return true
+})
+
+ipcMain.handle('hermes:git:ghLogout', (_event, login) => ghLogout(resolveGhBinary(), login))
+
+// GitLab (glab CLI) counterparts. glab has no non-interactive device login, so
+// the connect flow signs in with a personal access token from the renderer.
+ipcMain.handle('hermes:git:glProfile', () => glProfile(resolveGlabBinary()))
+
+ipcMain.handle('hermes:git:glLoginToken', (_event, token) => glLoginWithToken(resolveGlabBinary(), token))
+
+ipcMain.handle('hermes:git:glLogout', (_event, login) => glLogout(resolveGlabBinary(), login))
+
+ipcMain.handle('hermes:git:ghListRepos', () => ghListRepos(resolveGhBinary()))
+
+ipcMain.handle('hermes:git:ghCloneRepo', async (_event, repoUrl, targetPath, callbackId) => {
+  const result = await ghCloneRepo(resolveGhBinary(), repoUrl, targetPath, progress => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(`hermes:git:ghCloneRepo:progress:${callbackId}`, progress)
+    }
+  })
+  return result
+})
+
+ipcMain.handle('hermes:git:glListRepos', () => glListRepos(resolveGlabBinary()))
+
+ipcMain.handle('hermes:git:glCloneRepo', async (_event, repoUrl, targetPath, callbackId) => {
+  const result = await glCloneRepo(resolveGlabBinary(), repoUrl, targetPath, progress => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(`hermes:git:glCloneRepo:progress:${callbackId}`, progress)
+    }
+  })
+  return result
+})
+
+// Configurable git working directory. Only folders inside a git repository are
+// valid; the persisted value is always the repo root, so resolveHermesCwd can
+// use it directly as the session cwd (see readGitWorkdir).
+ipcMain.handle('hermes:git:workdir:get', async () => ({
+  dir: readGitWorkdir(),
+  defaultLabel: app.getPath('home'),
+  resolvedCwd: resolveHermesCwd()
+}))
+
+ipcMain.handle('hermes:git:workdir:pick', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Choose git working directory',
+    properties: ['openDirectory'],
+    defaultPath: readGitWorkdir() || app.getPath('home')
+  })
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { canceled: true, dir: null }
+  }
+
+  return { canceled: false, dir: result.filePaths[0] }
+})
+
+ipcMain.handle('hermes:git:workdir:set', async (_event, dir) => {
+  const requested = typeof dir === 'string' && dir.trim() ? dir.trim() : null
+
+  if (!requested) {
+    writeGitWorkdir(null)
+
+    return { dir: null, root: null }
+  }
+
+  const resolved = resolveRequestedPathForIpc(requested, { purpose: 'Git working directory' })
+  const root = await gitRootForIpc(resolved)
+
+  if (!root) {
+    throw new Error('Selected folder is not inside a git repository')
+  }
+
+  writeGitWorkdir(root)
+
+  return { dir: root, root }
+})
+
+ipcMain.handle('hermes:git:workdir:clear', async () => {
+  writeGitWorkdir(null)
+
+  return { dir: null }
+})
+
+// Initialize a git repo in an arbitrary local folder and adopt it as the
+// working directory. The renderer calls this when the user picks a folder
+// that has no repository yet.
+ipcMain.handle('hermes:git:init', async (_event, dir) => {
+  const requested = typeof dir === 'string' && dir.trim() ? dir.trim() : null
+
+  if (!requested) {
+    throw new Error('No folder selected')
+  }
+
+  const resolved = resolveRequestedPathForIpc(requested, { purpose: 'Git init' })
+
+  await initRepository(resolved, resolveGitBinary())
+
+  writeGitWorkdir(resolved)
+
+  return { dir: resolved, root: resolved }
+})
+
+// Fork sync for the settings "local repositories" list: the original
+// project's commit count (origin/main), or null when the repo has no such
+// ref — plus `git pull origin main` to bring the folder up to date. When a
+// pull lands in a conflicted merge, the conflict* handlers let the renderer
+// list the conflicted files (with their marker-laden content), resolve each
+// one to ours/theirs/both, and either finish the merge — preserving the
+// branch's own commits — or abort back to the pre-pull state.
+ipcMain.handle('hermes:git:syncInfo', async (_event, repoPath) => repoSyncInfo(repoPath, resolveGitBinary()))
+ipcMain.handle('hermes:git:pull', async (_event, repoPath) => repoPull(repoPath, resolveGitBinary()))
+ipcMain.handle('hermes:git:push', async (_event, repoPath) => repoPush(repoPath, resolveGitBinary()))
+ipcMain.handle('hermes:git:syncFork', async (_event, repoPath) => repoSyncFork(repoPath, resolveGitBinary()))
+ipcMain.handle('hermes:git:conflictFiles', async (_event, repoPath) => repoConflictFiles(repoPath, resolveGitBinary()))
+ipcMain.handle('hermes:git:resolveConflict', async (_event, repoPath, file, choice) =>
+  repoResolveConflict(repoPath, file, choice, resolveGitBinary())
+)
+ipcMain.handle('hermes:git:continueMerge', async (_event, repoPath) => repoContinueMerge(repoPath, resolveGitBinary()))
+ipcMain.handle('hermes:git:abortMerge', async (_event, repoPath) => repoAbortMerge(repoPath, resolveGitBinary()))
+ipcMain.handle('hermes:git:config:get', async (_event, repoPath) => repoGitConfigGet(repoPath, resolveGitBinary()))
+ipcMain.handle('hermes:git:config:set', async (_event, repoPath, scope, username) =>
+  repoGitConfigSet(repoPath, scope, username, resolveGitBinary())
+)
+ipcMain.handle('hermes:git:glConfig:get', async (_event, repoPath) =>
+  repoGitConfigGet(repoPath, resolveGitBinary(), 'gitlab.com')
+)
+ipcMain.handle('hermes:git:glConfig:set', async (_event, repoPath, scope, username) =>
+  repoGitConfigSet(repoPath, scope, username, resolveGitBinary(), 'gitlab.com')
+)
 
 // Client-side loopback callback for MCP OAuth against remote backends — see
 // mcp-oauth-callback-ipc.ts.

@@ -14,6 +14,7 @@ import {
   Bell,
   Cpu,
   Download,
+  GitBranch,
   Globe,
   Info,
   Keyboard,
@@ -46,6 +47,8 @@ import { BillingSettings } from './billing'
 import { ConfigSettings } from './config-settings'
 import { SECTIONS } from './constants'
 import { GatewaySettings } from './gateway-settings'
+import { GitHubSettings } from './github-settings'
+import { GitLabSettings } from './gitlab-settings'
 import { KeybindSettings } from './keybind-settings'
 import { KEYS_VIEWS, KeysSettings, type KeysView } from './keys-settings'
 import { movedSettingsTabRedirect } from './moved-tabs'
@@ -56,6 +59,8 @@ import type { SettingsPageProps, SettingsView as SettingsViewId } from './types'
 
 const SETTINGS_VIEWS: readonly SettingsViewId[] = [
   ...SECTIONS.map(s => `config:${s.id}` as SettingsViewId),
+  'github',
+  'gitlab',
   'providers',
   'gateway',
   // Legacy alias: the Connections page merged into Gateways. Kept in the enum
@@ -191,6 +196,20 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
         id: 'billing',
         label: t.settings.nav.billing,
         onSelect: () => setActiveView('billing')
+      },
+      {
+        active: activeView === 'github',
+        icon: GitBranch,
+        id: 'github',
+        label: t.settings.nav.github,
+        onSelect: () => setActiveView('github')
+      },
+      {
+        active: activeView === 'gitlab',
+        icon: GitBranch,
+        id: 'gitlab',
+        label: t.settings.nav.gitlab,
+        onSelect: () => setActiveView('gitlab')
       },
       {
         active: activeView === 'providers',
@@ -382,6 +401,10 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
       <AppearanceSettings />
     ) : activeView === 'about' ? (
       <AboutSettings />
+    ) : activeView === 'github' ? (
+      <GitHubSettings activeView={activeView} onClose={onClose} />
+    ) : activeView === 'gitlab' ? (
+      <GitLabSettings activeView={activeView} onClose={onClose} />
     ) : activeView === 'gateway' || activeView === 'connections' ? (
       // 'connections' renders the unified page too so the frame before
       // the alias redirect lands doesn't flash the fallback view.

@@ -452,6 +452,51 @@ declare global {
           roots: string[],
           options?: { maxDepth?: number; enabled?: boolean; excludePaths?: string[] }
         ) => Promise<{ root: string; label: string }[]>
+        ghProfile: () => Promise<HermesGitHubProfile>
+        configGet: (
+          repoPath: string
+        ) => Promise<{ ok: boolean; global: null | string; local: null | string }>
+        configSet: (repoPath: string, scope: 'global' | 'local', username: string) => Promise<{ ok: boolean; error?: string }>
+        ghLoginStart: () => Promise<null | { code: string; url: string; error?: string }>
+        ghLoginCancel: () => Promise<boolean>
+        onGhLoginEvent: (callback: (payload: { ok: boolean }) => void) => () => void
+        ghLogout: (login: string) => Promise<{ ok: boolean }>
+        glProfile: () => Promise<HermesGitLabProfile>
+        glLoginWithToken: (token: string) => Promise<{ ok: boolean; error?: string }>
+        glLogout: (login: string) => Promise<{ ok: boolean }>
+        glConfigGet: (
+          repoPath: string
+        ) => Promise<{ ok: boolean; global: null | string; local: null | string }>
+        glConfigSet: (repoPath: string, scope: 'global' | 'local', username: string) => Promise<{ ok: boolean; error?: string }>
+        ghListRepos: () => Promise<HermesRemoteRepoList>
+        ghCloneRepo: (repoUrl: string, targetPath: string, onProgress?: (progress: HermesCloneProgress) => void) => Promise<HermesCloneResult>
+        glListRepos: () => Promise<HermesRemoteRepoList>
+        glCloneRepo: (repoUrl: string, targetPath: string, onProgress?: (progress: HermesCloneProgress) => void) => Promise<HermesCloneResult>
+        workdir: {
+          get: () => Promise<{ dir: string | null; defaultLabel: string; resolvedCwd: string }>
+          pick: () => Promise<{ canceled: boolean; dir: string | null }>
+          set: (dir: string) => Promise<{ dir: string; root: string }>
+          clear: () => Promise<{ dir: null }>
+        }
+        gitInit: (dir: string) => Promise<{ dir: string; root: string }>
+        syncInfo: (repoPath: string) => Promise<{
+          ahead: number
+          behind: number
+          conflicted: boolean
+          conflictedFiles: string[]
+          gitlabUrl: null | string
+          lastCommitAt: null | number
+          mergeInProgress: boolean
+          remote: 'origin' | 'upstream'
+          unpushed: number
+          url: null | string
+        }>
+        pull: (repoPath: string) => Promise<void>
+        push: (repoPath: string) => Promise<void>
+        syncFork: (repoPath: string) => Promise<void>
+        continueMerge: (repoPath: string) => Promise<{ ok: boolean }>
+        abortMerge: (repoPath: string) => Promise<{ ok: boolean }>
+        repoStatus: (repoPath: string) => Promise<HermesRepoStatus | null>
       }
       terminal: {
         attach: (id: string) => Promise<boolean>
@@ -1435,4 +1480,48 @@ export interface HermesSelectPathsOptions {
 export interface BackendExit {
   code: number | null
   signal: string | null
+}
+
+// ── GitHub / GitLab integration ────────────────────────────────────────────
+
+export interface HermesGitHubProfile {
+  avatarUrl: null | string
+  login: string
+  name: null | string
+  ok: boolean
+}
+
+export interface HermesGitLabProfile {
+  avatarUrl: null | string
+  login: string
+  name: null | string
+  ok: boolean
+}
+
+export interface HermesRemoteRepo {
+  cloneUrl: string
+  description: null | string
+  fullName: string
+  id: number
+  isPrivate: boolean
+  name: string
+  owner: string
+  updatedAt: null | string
+}
+
+export interface HermesRemoteRepoList {
+  error?: string
+  repos: HermesRemoteRepo[]
+}
+
+export interface HermesCloneProgress {
+  bytesReceived: number
+  phase: 'counting' | 'compressing' | 'receiving' | 'resolving' | 'done'
+  totalBytes: number
+}
+
+export interface HermesCloneResult {
+  error?: string
+  path: string
+  success: boolean
 }

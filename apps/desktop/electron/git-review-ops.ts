@@ -880,11 +880,1030 @@ async function repoStatus(repoPath, gitBin) {
   return result
 }
 
+// itself (MERGE_HEAD present), even when every conflict is already resolved
+// but the merge commit hasn't been created — the state an interrupted
+// resolution leaves behind — so the row offers "continue merge" instead of a
+// pull that would fail mid-merge. Null when no tracked remote is resolvable
+// or the path doesn't resolve, so the sync affordance only appears where it
+// applies.
+async function repoSyncInfo(repoPath, gitBin) {
+  let cwd
+
+  try {
+    cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Repo sync info' })
+  } catch {
+    return null
+  }
+
+  await refreshRemotes(cwd, gitBin)
+
+  const git = gitFor(cwd, gitBin)
+  const target = await resolvePullTarget(git)
+
+  if (!target) {
+    return null
+  }
+
+  const branch = String((await git.raw(['rev-parse', '--abbrev-ref', 'HEAD']).catch(() => null)) || '').trim()
+
+  const [count, aheadCount, unpushedCount, remoteUrl, headDate, unmerged, mergeHead] = await Promise.all([
+    git.raw(['rev-list', '--count', `HEAD..${target.remote}/${target.branch}`]).catch(() => null),
+    git.raw(['rev-list', '--count', `${target.remote}/${target.branch}..HEAD`]).catch(() => null),
+    git
+      .raw(['rev-list', '--count', branch && branch !== 'HEAD' ? `origin/${branch}..HEAD` : 'HEAD..HEAD'])
+      .catch(() => null),
+    git.raw(['remote', 'get-url', target.remote]).catch(() => null),
+    git.raw(['log', '-1', '--format=%ct', 'HEAD']).catch(() => null),
+    git.raw(['diff', '--name-only', '--diff-filter=U']).catch(() => ''),
+    git.raw(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).catch(() => null)
+  ])
+
+  if (count === null) {
+    return null
+  }
+
+  const conflictedFiles = String(unmerged || '').split('\n').filter(Boolean)
+
+  return {
+    ahead: Math.max(0, parseInt(String(aheadCount || '').trim(), 10) || 0),
+    behind: Math.max(0, parseInt(String(count).trim(), 10) || 0),
+    conflicted: conflictedFiles.length > 0,
+    conflictedFiles,
+    lastCommitAt: headDate ? Number(String(headDate).trim()) * 1000 : null,
+    mergeInProgress: Boolean(String(mergeHead || '').trim()),
+    remote: target.remote,
+    unpushed: Math.max(0, parseInt(String(unpushedCount || '').trim(), 10) || 0),
+    url: githubUrlFromRemote(String(remoteUrl || '').trim()),
+    gitlabUrl: gitlabUrlFromRemote(String(remoteUrl || '').trim())
+  }
+}
+
+// Normalize a git remote URL to the https GitHub URL for the same repo, or
+// null when the remote isn't GitHub-hosted (so the "open on GitHub" button
+// only appears where it points at GitHub). Handles the scp syntax
+// (`git@github.com:owner/repo.git`) and the https/ssh/git URL forms.
+function githubUrlFromRemote(raw) {
+  return forgeUrlFromRemote(raw, 'github.com')
+}
+
+// Same normalization for GitLab-hosted remotes — powers the "open on GitLab"
+// affordance and the GitLab repo-list filter.
+function gitlabUrlFromRemote(raw) {
+  return forgeUrlFromRemote(raw, 'gitlab.com')
+}
+
+function forgeUrlFromRemote(raw, host) {
+  const value = String(raw || '').trim()
+
+  if (!value) {
+    return null
+  }
+
+  const escaped = host.replace(/\./g, '\\.')
+  const scp = new RegExp(`^(?:[^@\\s]+@)?${escaped}:([^/\\s]+)\\/([^/\\s]+?)(?:\\.git)?$`)
+  const url = new RegExp(`^(?:https?|git|ssh):\\/\\/(?:[^@\\s]+@)?${escaped}\\/([^/\\s]+)\\/([^/\\s]+?)(?:\\.git)?\\/?$`)
+
+  const match = value.match(scp) ?? value.match(url)
+
+  if (!match) {
+    return null
+  }
+
+  return `https://${host}/${match[1]}/${match[2]}`
+}
+
+// The remotes that define "the original project", in preference order.
+const ORIGINAL_REMOTE_PREFERENCE = ['upstream', 'origin']
+
+// Resolve which remote/branch the sync affordance should track: the first
+// configured remote from ORIGINAL_REMOTE_PREFERENCE whose remote-tracking
+// branch can be named. The branch comes from the remote's HEAD symref when
+// set, else the conventional main/master — never assume a fork's default
+// branch is main.
+async function resolvePullTarget(git) {
+  const remotes = String(await git.raw(['remote']).catch(() => '')).split(/\s+/).filter(Boolean)
+
+  for (const remote of ORIGINAL_REMOTE_PREFERENCE) {
+    if (!remotes.includes(remote)) {
+      continue
+    }
+
+    const branch = await resolveRemoteBranch(git, remote)
+
+    if (branch) {
+      return { remote, branch }
+    }
+  }
+
+  return null
+}
+
+async function resolveRemoteBranch(git, remote) {
+  const prefix = `refs/remotes/${remote}/`
+  const head = String(await git.raw(['symbolic-ref', prefix + 'HEAD']).catch(() => '')).trim()
+  const candidates = head.startsWith(prefix) ? [head.slice(prefix.length), 'main', 'master'] : ['main', 'master']
+
+  for (const branch of candidates) {
+    const ok = await git.raw(['rev-parse', '--verify', `refs/remotes/${remote}/${branch}`]).catch(() => null)
+
+    if (ok) {
+      return branch
+    }
+  }
+
+  return null
+}
+
+// Refresh the tracked remotes with a bounded timeout so the behind count is
+// the exact number of missing commits, not a stale last-fetch snapshot. A
+// failed fetch (offline) falls back to the refs we already have — the count
+// stays honest, just possibly older. All-branch fetch: never fails because a
+// default branch is named differently than main.
+function refreshRemotes(cwd, gitBin) {
+  return new Promise<void>(resolve => {
+    const git = gitFor(cwd, gitBin)
+
+    void git
+      .raw(['remote'])
+      .then(remotes => {
+        const names = String(remotes || '').split(/\s+/).filter(Boolean)
+        const targets = ORIGINAL_REMOTE_PREFERENCE.filter(name => names.includes(name))
+
+        return Promise.all(targets.map(remote => fetchRemote(cwd, gitBin, remote)))
+      })
+      .catch(() => null)
+      .then(() => resolve())
+  })
+}
+
+function fetchRemote(cwd, gitBin, remote) {
+  return new Promise(resolve => {
+    execFile(
+      gitBin || 'git',
+      ['fetch', '--quiet', remote],
+      { cwd, windowsHide: true, timeout: 15_000 },
+      err => resolve(!err)
+    )
+  })
+}
+
+// Bring a local repo folder up to date with the latest commits from the
+// git pull refuses to start a merge when local uncommitted changes (tracked
+// or untracked) would be overwritten — it aborts before writing any conflict
+// markers, so a plain retry can never recover. The sync flow instead stashes
+// the local work under a known name, retries the pull so the incoming commits
+// land in the working tree, then pops the stash back. A conflicted pop leaves
+// the stash entry in place (nothing is lost) and the unmerged paths become the
+// conflict state the resolver/agent flow sees; a failed pull for a real reason
+// (auth, network) restores the stash before rethrowing.
+const AUTOSTASH_MESSAGE = 'hermes-sync-autostash'
+
+function isDirtyTreeAbort(error) {
+  return /local changes|would be overwritten/i.test(String(error?.message || error || ''))
+}
+
+async function hasUnresolvedMergeState(git) {
+  const [unmerged, mergeHead] = await Promise.all([
+    git.raw(['diff', '--name-only', '--diff-filter=U']).catch(() => ''),
+    git.raw(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).catch(() => null)
+  ])
+
+  return String(unmerged || '').trim().length > 0 || Boolean(String(mergeHead || '').trim())
+}
+
+async function pullWithDirtyTreeRecovery(git, remote, branch) {
+  try {
+    await git.raw(['pull', remote, branch])
+
+    return
+  } catch (error) {
+    if (!isDirtyTreeAbort(error)) {
+      throw error
+    }
+  }
+
+  try {
+    await git.raw(['stash', 'push', '--include-untracked', '-m', AUTOSTASH_MESSAGE])
+  } catch {
+    // The tree was already clean by the time we retried; the plain pull below
+    // decides the outcome.
+  }
+
+  try {
+    await git.raw(['pull', remote, branch])
+  } catch (error) {
+    // The retried pull either conflicted mid-merge (leave the repo resolvable
+    // with the stash holding the local work) or failed for a real reason
+    // (restore the stash so the user's changes are not left hidden).
+    if (await hasUnresolvedMergeState(git)) {
+      throw new Error('The sync merge has conflicts. Resolve them with the agent.')
+    }
+
+    await git.raw(['stash', 'pop']).catch(() => {})
+
+    throw error
+  }
+
+  const pop = await git.raw(['stash', 'pop']).catch(error => ({ error }))
+
+  if (await hasUnresolvedMergeState(git)) {
+    throw new Error('Your local changes conflict with the sync. Resolve them with the agent.')
+  }
+
+  if (pop && pop.error) {
+    throw new Error(
+      `The sync succeeded, but your local changes could not be restored automatically. They are preserved in a stash entry named ${AUTOSTASH_MESSAGE} — apply it with git stash apply.`
+    )
+  }
+}
+
+// original project (`git pull upstream main` for forks, `git pull origin main`
+// for plain clones). Used by the settings repo list's sync button; rejects so
+// the renderer can surface the failure.
+async function repoPull(repoPath, gitBin) {
+  const cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Repo pull' })
+
+  await refreshRemotes(cwd, gitBin)
+
+  const git = gitFor(cwd, gitBin)
+  const target = await resolvePullTarget(git)
+
+  if (!target) {
+    throw new Error('No upstream or origin remote to pull from')
+  }
+
+  await pullWithDirtyTreeRecovery(git, target.remote, target.branch)
+
+  return { ok: true }
+}
+
+// Bring a fork folder fully in sync with the original project, mirroring
+// GitHub's "Sync fork → Update branch": pull the upstream branch into the
+// local checkout, then push the updated branch to the fork (`origin`) so the
+// fork on GitHub carries the same commits. Only meaningful when the resolved
+// pull target is `upstream` — a plain clone (origin only) has no fork to
+// sync — and rejects so the renderer can toast.
+async function repoSyncFork(repoPath, gitBin) {
+  const cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Repo sync fork' })
+
+  await refreshRemotes(cwd, gitBin)
+
+  const git = gitFor(cwd, gitBin)
+  const target = await resolvePullTarget(git)
+
+  if (!target) {
+    throw new Error('No upstream or origin remote to sync from')
+  }
+
+  if (target.remote !== 'upstream') {
+    throw new Error('No upstream remote — nothing to sync a fork from')
+  }
+
+  await pullWithDirtyTreeRecovery(git, target.remote, target.branch)
+  await git.raw(['push', 'origin', 'HEAD'])
+
+  return { ok: true }
+}
+
+// Upload the local branch's commits to the repo's own remote (`origin`), the
+// counterpart of the settings push button: the local-only work the `unpushed`
+// count reports. Pushing to `upstream` is never attempted — a fork's original
+// project is read-only for the checkout's owner. Rejects when the repo has no
+// origin so the renderer can surface the failure.
+async function repoPush(repoPath, gitBin) {
+  const cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Repo push' })
+
+  const git = gitFor(cwd, gitBin)
+  const remotes = String(await git.raw(['remote']).catch(() => '')).split(/\s+/).filter(Boolean)
+
+  if (!remotes.includes('origin')) {
+    throw new Error('No origin remote to push to')
+  }
+
+  await git.raw(['push', 'origin', 'HEAD'])
+
+  return { ok: true }
+}
+
+// Cap for conflict content shipped across IPC — a conflicted file can be a
+// generated artifact or vendored bundle, and the resolver UI only needs the
+// marker region, not megabytes of surrounding file.
+const CONFLICT_FILE_MAX_BYTES = 512 * 1024
+
+// Resolve a renderer-supplied conflict file against the repo root. Returns
+// the normalized relative path (git-style forward slashes). Throws when the
+// path escapes the repo, is absolute, or is not currently in conflict — the
+// resolver must never touch files git isn't actively merging.
+async function assertConflictPath(cwd, git, file) {
+  const normalized = String(file || '').replace(/\\/g, '/')
+
+  if (!normalized || normalized.startsWith('/') || normalized.includes('..')) {
+    throw new Error('Conflict path must be a relative path inside the repository')
+  }
+
+  const resolved = path.resolve(cwd, normalized)
+
+  if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) {
+    throw new Error('Conflict path escapes the repository')
+  }
+
+  const raw = await git.raw(['diff', '--name-only', '--diff-filter=U']).catch(() => '')
+
+  if (!String(raw || '').split('\n').includes(normalized)) {
+    throw new Error(`Not a conflicted file: ${normalized}`)
+  }
+
+  return normalized
+}
+
+// The conflicted files of a repo with their current worktree content (conflict
+// markers included) so the resolver UI can show the code that must be decided.
+// Content is capped; oversized or binary files report null so the UI degrades
+// gracefully instead of shipping megabytes or mojibake across IPC.
+async function repoConflictFiles(repoPath, gitBin) {
+  const cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Repo conflict files' })
+
+  const git = gitFor(cwd, gitBin)
+  const raw = await git.raw(['diff', '--name-only', '--diff-filter=U']).catch(() => '')
+
+  const files = []
+
+  for (const rel of String(raw || '').split('\n').filter(Boolean)) {
+    let content = null
+
+    try {
+      const full = path.join(cwd, rel)
+      const stat = await fs.stat(full)
+
+      if (stat.size <= CONFLICT_FILE_MAX_BYTES) {
+        content = await fs.readFile(full, 'utf8')
+      }
+    } catch {
+      // File may have been deleted (a delete/delete conflict); report null.
+    }
+
+    files.push({ content, path: rel })
+  }
+
+  return { files }
+}
+
+// Resolve one conflicted file: take ours (the checked-out branch), theirs (the
+// merged-in branch), or both (both sides concatenated, ours first), then stage
+// it. During a merge, stage 2 is ours (HEAD) and stage 3 is theirs
+// (MERGE_HEAD), so `git show :2:<path>` / `:3:<path>` fetch the exact sides.
+async function repoResolveConflict(repoPath, file, choice, gitBin) {
+  const cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Repo conflict resolve' })
+
+  const git = gitFor(cwd, gitBin)
+  const rel = await assertConflictPath(cwd, git, file)
+
+  if (choice === 'ours') {
+    await git.raw(['checkout', '--ours', '--', rel])
+  } else if (choice === 'theirs') {
+    await git.raw(['checkout', '--theirs', '--', rel])
+  } else if (choice === 'both') {
+    const [ours, theirs] = await Promise.all([
+      git.raw(['show', `:2:${rel}`]).catch(() => ''),
+      git.raw(['show', `:3:${rel}`]).catch(() => '')
+    ])
+
+    if (String(ours).includes('\0') || String(theirs).includes('\0')) {
+      throw new Error('Cannot merge both sides of a binary file — pick ours or theirs')
+    }
+
+    await fs.writeFile(path.join(cwd, rel), `${String(ours).replace(/\n$/, '')}\n${String(theirs)}`)
+  } else {
+    throw new Error(`Unknown conflict choice: ${choice}`)
+  }
+
+  await git.raw(['add', '--', rel])
+
+  return { ok: true }
+}
+
+// Finish the in-progress merge after the user resolved every conflict: verify
+// none remain (the UI disables Continue until then, but git is the authority —
+// the repo may have changed underneath), then commit with the default merge
+// message. The merge commit preserves BOTH histories — the local commits and
+// the pulled-in remote commits — which is exactly "resolve without losing my
+// branch's commits". Abort is the only path that discards work, and it is
+// explicit (repoAbortMerge).
+async function repoContinueMerge(repoPath, gitBin) {
+  const cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Repo continue merge' })
+
+  const git = gitFor(cwd, gitBin)
+  const remaining = String(await git.raw(['diff', '--name-only', '--diff-filter=U']).catch(() => '')).trim()
+
+  if (remaining) {
+    throw new Error('Unresolved conflicts remain — resolve every file before continuing')
+  }
+
+  await git.raw(['commit', '--no-edit'])
+
+  return { ok: true }
+}
+
+// Discard the in-progress merge entirely and return to the pre-pull state.
+// Safe: `git merge --abort` restores HEAD to where it was before the pull, so
+// the branch's own commits are never touched.
+async function repoAbortMerge(repoPath, gitBin) {
+  const cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Repo abort merge' })
+
+  await gitFor(cwd, gitBin).raw(['merge', '--abort'])
+
+  return { ok: true }
+}
+
+// The authenticated GitHub CLI identity — the same gh profile the Review pane's
+// PR flows act as. The "connected" signal is exactly the review pane's gate:
+// `gh auth status` exit code. The identity is best-effort on top of it —
+// `gh api user` for login/name/avatar, falling back to the login parsed from
+// auth status output (covers tokens with auth but no API scope). No repo
+// required: both commands are cwd-independent.
+async function ghProfile(ghBin) {
+  const auth = await runGh(['auth', 'status'], process.cwd(), ghBin)
+
+  if (!auth.ok) {
+    return { ok: false }
+  }
+
+  const parsedLogin = auth.stdout.match(/Logged in to \S+ (?:account|as) (\S+)/)?.[1] ?? ''
+
+  const user = await runGh(
+    ['api', 'user', '--jq', '{login: .login, name: .name, avatar_url: .avatar_url}'],
+    process.cwd(),
+    ghBin
+  )
+
+  if (user.ok) {
+    try {
+      const data = JSON.parse(user.stdout)
+
+      return {
+        ok: true,
+        login: String(data.login || parsedLogin),
+        name: data.name ? String(data.name) : null,
+        avatarUrl: data.avatar_url ? String(data.avatar_url) : null
+      }
+    } catch {
+      // fall through to the auth-status parse
+    }
+  }
+
+  return { ok: true, login: parsedLogin, name: null, avatarUrl: null }
+}
+
+// The git identity commits should carry when gh is authenticated: the
+// profile's display name (falling back to the login) and GitHub's noreply
+// email (`<id>+<login>@users.noreply.github.com`), so commits are attributed
+// to the account the user is logged into gh as. Null when gh can't answer.
+async function ghIdentity(ghBin) {
+  const user = await runGh(
+    ['api', 'user', '--jq', '{login: .login, name: .name, id: .id}'],
+    process.cwd(),
+    ghBin
+  )
+
+  if (!user.ok) {
+    return null
+  }
+
+  try {
+    const data = JSON.parse(user.stdout)
+    const login = String(data.login || '')
+
+    if (!login) {
+      return null
+    }
+
+    const id = String(data.id ?? '')
+
+    return {
+      name: data.name ? String(data.name) : login,
+      email: id ? `${id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com`
+    }
+  } catch {
+    return null
+  }
+}
+
+let ghLoginProc = null
+let ghLoginDoneCb = null
+
+// Parse the device-login banner `gh auth login --web` prints. gh 2.x writes
+// the whole banner to stderr (the terminal shows exactly these two lines),
+// and the URL is the device endpoint the user must open in a browser.
+function parseGhLoginBanner(text) {
+  const code = text.match(/one-time code:\s*([A-Z0-9]{4}-[A-Z0-9]{4})/i)?.[1] ?? null
+  const url = text.match(/https:\/\/github\.com\/login\/device/)?.[0] ?? null
+
+  return { code, url }
+}
+
+// Start `gh auth login --web` and resolve with the one-time code + device URL
+// once gh prints them. The caller shows those to the user while the process
+// keeps running; `onDone(ok)` fires when it exits (completed or failed).
+// Returns null when gh is missing or a login is already running. gh 2.x
+// prints the banner to stderr, so both streams feed the same parser.
+function ghLogin(ghBin, onDone) {
+  if (ghLoginProc || !ghBin) {
+    return null
+  }
+
+  ghLoginDoneCb = onDone
+
+  const proc = execFile(
+    ghBin,
+    ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'],
+    // GH_PROMPT_DISABLED skips the "Press Enter to open ..." step so gh
+    // prints the code + URL and polls in the background on its own.
+    { env: { ...ghEnv(ghBin), GH_PROMPT_DISABLED: '1' }, windowsHide: true },
+    err => {
+      ghLoginProc = null
+      const done = ghLoginDoneCb
+      ghLoginDoneCb = null
+      done?.(!err)
+    }
+  )
+
+  ghLoginProc = proc
+
+  return new Promise(resolve => {
+    let buffer = ''
+    let settled = false
+
+    // gh prints the banner within a couple of seconds; anything longer means
+    // the binary is broken or blocked, so fail instead of spinning forever.
+    const timer = setTimeout(() => {
+      proc.kill()
+
+      if (!settled) {
+        settled = true
+        resolve({ code: '', url: '', error: 'gh auth login did not respond' })
+      }
+    }, 10_000)
+
+    const onChunk = chunk => {
+      buffer += chunk.toString()
+
+      const { code, url } = parseGhLoginBanner(buffer)
+
+      if (!settled && code && url) {
+        settled = true
+        clearTimeout(timer)
+        resolve({ code, url })
+      }
+    }
+
+    proc.stdout.on('data', onChunk)
+    proc.stderr.on('data', onChunk)
+
+    proc.on('close', () => {
+      clearTimeout(timer)
+
+      if (!settled) {
+        settled = true
+        // gh died before printing the banner — surface whatever it said.
+        resolve({ code: '', url: '', error: buffer.trim().slice(0, 300) || 'gh auth login exited early' })
+      }
+    })
+
+    proc.on('error', () => {
+      clearTimeout(timer)
+
+      if (!settled) {
+        settled = true
+        resolve({ code: '', url: '', error: 'gh could not be started' })
+      }
+    })
+  })
+}
+
+function cancelGhLogin() {
+  ghLoginProc?.kill()
+}
+
+// Sign out of the github.com host (the one `ghLogin` signs into). gh has no
+// non-interactive logout flag, so the confirmation prompt is answered with
+// `y` on stdin. `login` pins the account (avoids the account picker when
+// several are stored). `{ ok: false }` when gh is missing or the logout fails.
+async function ghLogout(ghBin, login) {
+  if (!ghBin) {
+    return { ok: false }
+  }
+
+  const args = ['auth', 'logout', '--hostname', 'github.com']
+
+  if (login) {
+    args.push('--user', login)
+  }
+
+  return new Promise(resolve => {
+    const proc = execFile(
+      ghBin,
+      args,
+      { env: ghEnv(ghBin), windowsHide: true, timeout: 30_000 },
+      err => resolve({ ok: !err })
+    )
+
+    proc.stdin.write('y\n')
+  })
+}
+
+// --- GitLab (glab CLI) ------------------------------------------------------
+//
+// glab has no non-interactive browser/device login the way `gh auth login
+// --web` has — its prompts need a TTY. The reliable non-interactive path is a
+// personal access token, so the GitLab connect flow asks for one in the UI and
+// pipes it here (`glab auth login --stdin`).
+
+function runGlab(args, cwd, glabBin) {
+  return runGh(args, cwd, glabBin)
+}
+
+async function glProfile(glabBin) {
+  const auth = await runGlab(['auth', 'status', '--hostname', 'gitlab.com'], process.cwd(), glabBin)
+
+  if (!auth.ok) {
+    return { ok: false }
+  }
+
+  const parsedLogin =
+    auth.stdout.match(/Logged in to \S+ (?:account|as) (\S+)/)?.[1] ??
+    auth.stdout.match(/\bas\s+(\S+)/i)?.[1] ??
+    ''
+
+  const user = await runGlab(['api', 'user'], process.cwd(), glabBin)
+
+  if (user.ok) {
+    try {
+      const data = JSON.parse(user.stdout)
+
+      return {
+        ok: true,
+        login: String(data.username || parsedLogin),
+        name: data.name ? String(data.name) : null,
+        avatarUrl: data.avatar_url ? String(data.avatar_url) : null
+      }
+    } catch {
+      // fall through to the auth-status parse
+    }
+  }
+
+  return { ok: true, login: parsedLogin, name: null, avatarUrl: null }
+}
+
+// Sign in with a personal access token. `--stdin` keeps the token out of the
+// process list; older glab builds lack the flag, so a failed stdin attempt
+// retries with `--token` as a compatibility rung.
+function glLoginWithToken(glabBin, token) {
+  if (!token) {
+    return Promise.resolve({ ok: false, error: 'Token is required' })
+  }
+
+  if (!glabBin) {
+    return Promise.resolve({ ok: false, error: 'GitLab CLI (glab) is not installed. Install it from https://gitlab.com/gitlab-org/cli' })
+  }
+
+  const env = ghEnv(glabBin)
+
+  return new Promise(resolve => {
+    execFile(
+      glabBin,
+      ['auth', 'login', '--hostname', 'gitlab.com', '--stdin'],
+      { env, windowsHide: true, timeout: 30_000 },
+      err => {
+        if (!err) {
+          resolve({ ok: true })
+
+          return
+        }
+
+        // If the first attempt failed, try the --token flag as a fallback
+        execFile(
+          glabBin,
+          ['auth', 'login', '--hostname', 'gitlab.com', '--token', token],
+          { env, windowsHide: true, timeout: 30_000 },
+          fallbackErr => {
+            // Handle ENOENT (binary not found) with a user-friendly message
+            if (fallbackErr && 'code' in fallbackErr && fallbackErr.code === 'ENOENT') {
+              resolve({ ok: false, error: 'GitLab CLI (glab) is not installed. Install it from https://gitlab.com/gitlab-org/cli' })
+            } else {
+              resolve({ ok: !fallbackErr, error: fallbackErr ? String(fallbackErr.message || '').slice(0, 300) : undefined })
+            }
+          }
+        )
+      }
+    ).stdin.end(`${token}\n`)
+  })
+}
+
+// Sign out of gitlab.com. Like gh, glab has no non-interactive confirmation
+// flag, so the prompt is answered with `y` on stdin; `login` pins the account.
+function glLogout(glabBin, login) {
+  if (!glabBin) {
+    return Promise.resolve({ ok: false })
+  }
+
+  const args = ['auth', 'logout', '--hostname', 'gitlab.com']
+
+  if (login) {
+    args.push('--username', login)
+  }
+
+  return new Promise(resolve => {
+    const proc = execFile(
+      glabBin,
+      args,
+      { env: ghEnv(glabBin), windowsHide: true, timeout: 30_000 },
+      err => {
+        // Handle ENOENT (binary not found) gracefully
+        if (err && 'code' in err && err.code === 'ENOENT') {
+          resolve({ ok: false })
+        } else {
+          resolve({ ok: !err })
+        }
+      }
+    )
+
+    proc.stdin.write('y\n')
+  })
+}
+
+async function ghListRepos(ghBin) {
+  if (!ghBin) {
+    return { repos: [] }
+  }
+
+  const result = await runGh(
+    ['api', 'user/repos', '--paginate', '--jq', '.[] | {id: .id, name: .name, owner: .owner.login, fullName: .full_name, description: .description, cloneUrl: .clone_url, isPrivate: .private, updatedAt: .updated_at}'],
+    process.cwd(),
+    ghBin
+  )
+
+  if (!result.ok) {
+    return { repos: [] }
+  }
+
+  try {
+    const lines = result.stdout.trim().split('\n').filter(Boolean)
+    const repos = lines.map(line => JSON.parse(line))
+    return { repos }
+  } catch {
+    return { repos: [] }
+  }
+}
+
+async function ghCloneRepo(ghBin, repoUrl, targetPath, onProgress) {
+  if (!repoUrl || !targetPath) {
+    return { success: false, path: '', error: 'Missing repository URL or target path' }
+  }
+
+  return new Promise(resolve => {
+    const env = ghEnv(ghBin)
+    let totalBytes = 0
+    let bytesReceived = 0
+    let stderrOutput = ''
+
+    const proc = execFile(
+      'git',
+      ['clone', '--progress', repoUrl, targetPath],
+      { env, windowsHide: true, timeout: 300_000 },
+      err => {
+        if (err) {
+          resolve({ success: false, path: '', error: stderrOutput.trim() || String(err.message || err) })
+        } else {
+          resolve({ success: true, path: targetPath })
+        }
+      }
+    )
+
+    proc.stderr.on('data', data => {
+      const text = String(data)
+      stderrOutput += text
+
+      const totalMatch = text.match(/Receiving objects:\s+\d+% \((\d+)\/(\d+)\)/)
+      if (totalMatch) {
+        totalBytes = parseInt(totalMatch[2]) * 1000
+        bytesReceived = parseInt(totalMatch[1]) * 1000
+        onProgress?.({
+          phase: 'receiving',
+          bytesReceived,
+          totalBytes
+        })
+      }
+    })
+  })
+}
+
+async function glListRepos(glabBin) {
+  if (!glabBin) {
+    return { repos: [], error: 'GitLab CLI not found. Install from https://gitlab.com/gitlab-org/cli' }
+  }
+
+  const authCheck = await runGlab(
+    ['auth', 'status', '--hostname', 'gitlab.com'],
+    process.cwd(),
+    glabBin
+  )
+
+  if (!authCheck.ok) {
+    return { repos: [], error: 'GitLab CLI not authenticated. Run "glab auth login" first.' }
+  }
+
+  const result = await runGlab(
+    ['api', 'projects?membership=true&order_by=last_activity_at&sort=desc&per_page=100'],
+    process.cwd(),
+    glabBin
+  )
+
+  if (!result.ok) {
+    const fallbackResult = await runGlab(
+      ['repo', 'list'],
+      process.cwd(),
+      glabBin
+    )
+    
+    if (!fallbackResult.ok) {
+      return { repos: [], error: 'Failed to list repositories' }
+    }
+    
+    const lines = fallbackResult.stdout.trim().split('\n').filter(Boolean)
+    const repos = lines.map((line, index) => {
+      const parts = line.split('\t')
+      const fullName = parts[0] || ''
+      const visibility = parts[1] || ''
+      const description = parts[2] || null
+      
+      const [owner, ...nameParts] = fullName.split('/')
+      const name = nameParts.join('/')
+      
+      return {
+        id: index + 1,
+        name: name || fullName,
+        owner: owner || '',
+        fullName: fullName,
+        description: description,
+        cloneUrl: `https://gitlab.com/${fullName}.git`,
+        isPrivate: visibility === 'private',
+        updatedAt: null
+      }
+    })
+    
+    return { repos }
+  }
+
+  try {
+    const data = JSON.parse(result.stdout)
+    
+    const repos = Array.isArray(data) ? data.map(project => ({
+      id: project.id || 0,
+      name: project.name || '',
+      owner: project.owner?.username || project.owner || '',
+      fullName: project.path_with_namespace || project.full_name || '',
+      description: project.description || null,
+      cloneUrl: project.http_url_to_repo || project.clone_url || '',
+      isPrivate: project.visibility === 'private' || project.private === true,
+      updatedAt: project.last_activity_at || project.updated_at || null
+    })) : []
+    
+    return { repos }
+  } catch {
+    return { repos: [], error: 'Failed to parse response' }
+  }
+}
+
+async function glCloneRepo(glabBin, repoUrl, targetPath, onProgress) {
+  if (!repoUrl || !targetPath) {
+    return { success: false, path: '', error: 'Missing repository URL or target path' }
+  }
+
+  return new Promise(resolve => {
+    const env = ghEnv(glabBin)
+    let totalBytes = 0
+    let bytesReceived = 0
+    let stderrOutput = ''
+
+    const proc = execFile(
+      'git',
+      ['clone', '--progress', repoUrl, targetPath],
+      { env, windowsHide: true, timeout: 300_000 },
+      err => {
+        if (err) {
+          resolve({ success: false, path: '', error: stderrOutput.trim() || String(err.message || err) })
+        } else {
+          resolve({ success: true, path: targetPath })
+        }
+      }
+    )
+
+    proc.stderr.on('data', data => {
+      const text = String(data)
+      stderrOutput += text
+
+      const totalMatch = text.match(/Receiving objects:\s+\d+% \((\d+)\/(\d+)\)/)
+      if (totalMatch) {
+        totalBytes = parseInt(totalMatch[2]) * 1000
+        bytesReceived = parseInt(totalMatch[1]) * 1000
+        onProgress?.({
+          phase: 'receiving',
+          bytesReceived,
+          totalBytes
+        })
+      }
+    })
+  })
+}
+
+async function repoGitConfigGet(repoPath, gitBin, host = 'github.com') {
+  let cwd
+
+  try {
+    cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Git config get' })
+  } catch {
+    return { ok: false }
+  }
+
+  let git
+
+  try {
+    git = gitFor(cwd, gitBin)
+  } catch {
+    return { ok: false }
+  }
+
+  const key = `credential.https://${host}.username`
+
+  const [globalVal, localVal] = await Promise.all([
+    git.raw(['config', '--global', key]).catch(() => ''),
+    git.raw(['config', '--local', key]).catch(() => '')
+  ])
+
+  const globalUser = String(globalVal || '').trim() || null
+  const localUser = String(localVal || '').trim() || null
+
+  return { ok: true, global: globalUser, local: localUser }
+}
+
+async function repoGitConfigSet(repoPath, scope, username, gitBin, host = 'github.com') {
+  let cwd
+
+  try {
+    cwd = resolveRequestedPathForIpc(repoPath, { purpose: 'Git config set' })
+  } catch {
+    return { ok: false, error: 'Invalid repo path' }
+  }
+
+  let git
+
+  try {
+    git = gitFor(cwd, gitBin)
+  } catch {
+    return { ok: false, error: 'Git unavailable' }
+  }
+
+  const key = `credential.https://${host}.username`
+  const flag = scope === 'global' ? '--global' : '--local'
+
+  try {
+    await git.raw(['config', flag, key, username])
+
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 export {
   branchBase,
+  cancelGhLogin,
   fileDiffVsHead,
+  ghCloneRepo,
+  ghListRepos,
+  ghLogin,
+  ghLogout,
+  ghProfile,
   gitFor,
+  githubUrlFromRemote,
+  gitlabUrlFromRemote,
+  glCloneRepo,
+  glListRepos,
+  glLoginWithToken,
+  glLogout,
+  glProfile,
+  parseGhLoginBanner,
+  repoAbortMerge,
+  repoConflictFiles,
+  repoContinueMerge,
+  repoGitConfigGet,
+  repoGitConfigSet,
+  repoPull,
+  repoPush,
+  repoResolveConflict,
   repoStatus,
+  repoSyncFork,
+  repoSyncInfo,
   resolveRenamePath,
   REVIEW_FILE_CAP,
   reviewCommit,

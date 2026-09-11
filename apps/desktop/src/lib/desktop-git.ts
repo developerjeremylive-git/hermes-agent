@@ -106,7 +106,50 @@ const remoteGit: GitBridge = {
 
   // Repo discovery is a local-disk crawl; on a remote gateway the backend
   // already merges session-derived repos, so this is a no-op.
-  scanRepos: async () => []
+  scanRepos: async () => [],
+
+  // GitHub/GitLab integration: on remote gateways these are not available
+  // through the Electron bridge, so they return safe defaults.
+  ghProfile: async () => ({ ok: false, login: '', name: null, avatarUrl: null }),
+  configGet: async () => ({ ok: false, global: null, local: null }),
+  configSet: async () => ({ ok: false, error: 'Not available on remote gateway' }),
+  ghLoginStart: async () => null,
+  ghLoginCancel: async () => false,
+  onGhLoginEvent: () => () => {},
+  ghLogout: async () => ({ ok: false }),
+  glProfile: async () => ({ ok: false, login: '', name: null, avatarUrl: null }),
+  glLoginWithToken: async () => ({ ok: false, error: 'Not available on remote gateway' }),
+  glLogout: async () => ({ ok: false }),
+  glConfigGet: async () => ({ ok: false, global: null, local: null }),
+  glConfigSet: async () => ({ ok: false, error: 'Not available on remote gateway' }),
+  ghListRepos: async () => ({ repos: [] }),
+  ghCloneRepo: async () => ({ success: false, path: '', error: 'Not available on remote gateway' }),
+  glListRepos: async () => ({ repos: [] }),
+  glCloneRepo: async () => ({ success: false, path: '', error: 'Not available on remote gateway' }),
+  workdir: {
+    get: async () => ({ dir: null, defaultLabel: '', resolvedCwd: '' }),
+    pick: async () => ({ canceled: true, dir: null }),
+    set: async (dir: string) => ({ dir, root: dir }),
+    clear: async () => ({ dir: null })
+  },
+  gitInit: async (dir: string) => ({ dir, root: dir }),
+  syncInfo: async () => ({
+    ahead: 0,
+    behind: 0,
+    conflicted: false,
+    conflictedFiles: [],
+    gitlabUrl: null,
+    lastCommitAt: null,
+    mergeInProgress: false,
+    remote: 'origin' as const,
+    unpushed: 0,
+    url: null
+  }),
+  pull: async () => {},
+  push: async () => {},
+  syncFork: async () => {},
+  continueMerge: async () => ({ ok: false }),
+  abortMerge: async () => ({ ok: false })
 }
 
 export function desktopGit(): GitBridge | undefined {
