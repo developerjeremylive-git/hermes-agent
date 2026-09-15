@@ -3,18 +3,20 @@ import { type ReactNode, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 
 import { blurComposerInput } from '@/app/chat/composer/focus'
+import { useComposerSurfaceId } from '@/app/chat/composer/scope'
 import { AGENTS_ROUTE } from '@/app/routes'
 import type { SubmitTextOptions } from '@/app/session/hooks/use-prompt-actions/utils'
 import { BillingBanner } from '@/components/billing-banner'
 import { composerDockCard } from '@/components/chat/composer-dock'
 import { StatusSection } from '@/components/chat/status-section'
+import { FreeTierNoticeStrip, useFreeTierNoticeOwner } from '@/components/free-tier/notice-strip'
 import { usePaneVisible } from '@/components/pane-shell/pane-visibility'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { Tip, TipKeybindLabel } from '@/components/ui/tooltip'
 import { type Translations, useI18n } from '@/i18n'
-import { useSessionSlice } from '@/lib/use-session-slice'
+import { useSessionSlice, useStoreSelector } from '@/lib/use-session-slice'
 import { cn } from '@/lib/utils'
 import { $billingBlock } from '@/store/billing-block'
 import {
@@ -26,9 +28,10 @@ import {
   type StatusGroup,
   stopBackgroundProcess
 } from '@/store/composer-status'
+import { $freeTierRoute, $freeTierStatus, freeTierStripPending } from '@/store/free-tier'
 import { $previewStatusBySession, dismissPreviewArtifact } from '@/store/preview-status'
 import { $sessionControlBySession, refreshSessionControl } from '@/store/session-control'
-import { $threadScrolledUp } from '@/store/thread-scroll'
+import { $threadScrolledUpBySession } from '@/store/thread-scroll'
 import { openSessionInNewWindow } from '@/store/windows'
 
 import { PreviewStatusRow } from './preview-row'
@@ -105,8 +108,20 @@ export function ComposerStatusStack({ onSubmit, queue, sessionId }: ComposerStat
   const previews = useSessionSlice($previewStatusBySession, sessionId)
   const controlEntry = useSessionValue($sessionControlBySession, sessionId)
 
-  const scrolledUp = useStore($threadScrolledUp)
+  const surfaceId = useComposerSurfaceId()
+  const scrollSessionId = sessionId ?? surfaceId
+
+  const scrolledUp = useStoreSelector($threadScrolledUpBySession, map =>
+    Boolean(scrollSessionId && map[scrollSessionId])
+  )
+
   const billing = useStore($billingBlock)
+  const freeTierStatus = useStore($freeTierStatus)
+  const freeTierRoute = useStore($freeTierRoute)
+  // One claimed owner across every mounted composer, so a split view shows the
+  // notice once — and a non-owning stack adds no empty row to its card.
+  const ownsFreeTierNotice = useFreeTierNoticeOwner()
+  const freeTierNotice = ownsFreeTierNotice && freeTierStripPending(freeTierStatus, freeTierRoute)
 
   const isStructuredSupported = controlEntry?.capability === 'supported'
 
@@ -181,6 +196,13 @@ export function ComposerStatusStack({ onSubmit, queue, sessionId }: ComposerStat
   // (not as a composer-disable) so slash commands stay usable.
   if (billing && sessionId && billing.sessionId === sessionId) {
     sections.push({ key: 'billing', node: <BillingBanner sessionId={sessionId} /> })
+  }
+
+  // Below the billing wall (a blocker outranks an offer), above everything the
+  // session itself is doing. The strip retires itself the moment any of its
+  // actions acks the notice.
+  if (freeTierNotice) {
+    sections.push({ key: 'free-tier', node: <FreeTierNoticeStrip /> })
   }
 
   const hasControlContent = Boolean(
