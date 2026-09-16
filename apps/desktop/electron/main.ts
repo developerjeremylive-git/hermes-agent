@@ -771,9 +771,13 @@ function loadInstallStamp() {
           path: p
         })
       }
-    } catch (e) {
-      console.warn(`[hermes] install-stamp.json found at ${p} , but parsing failed with ${e}`)
-      // Either ENOENT or malformed JSON; try the next candidate
+    } catch (e: any) {
+      // ENOENT is expected in dev mode (file only exists after `npm run build`).
+      // Only warn for unexpected errors.
+      if (e?.code !== 'ENOENT') {
+        console.warn(`[hermes] install-stamp.json at ${p} exists but failed to parse: ${e}`)
+      }
+      // Try the next candidate
     }
   }
 

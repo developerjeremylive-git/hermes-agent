@@ -58,10 +58,20 @@ export function formatRendererConsoleLine(
 }
 
 /** Attach the error-level console hook to a renderer window. `log` is the
- *  desktop.log sink (rememberLog in main.ts). */
+ *  desktop.log sink (rememberLog in main.ts).
+ *
+ *  Uses Electron 36+ event object signature: `(event)` where event carries
+ *  `{ level, message, lineNumber, sourceUrl }`. The formatRendererConsoleLine
+ *  helper still accepts the legacy positional args for any stragglers. */
 export function attachRendererConsoleCapture(win: WindowLike, label: string, log: (line: string) => void): void {
-  win.webContents.on('console-message', (_event, detailsOrLevel, message, line, sourceId) => {
-    const formatted = formatRendererConsoleLine(label, detailsOrLevel, message, line, sourceId)
+  win.webContents.on('console-message', (event: any) => {
+    // Electron 36+ sends a single event object with details
+    const details = event?.level !== undefined ? event : null
+    const level = details?.level ?? event
+    const message = details?.message
+    const line = details?.lineNumber
+    const sourceId = details?.sourceUrl
+    const formatted = formatRendererConsoleLine(label, level, message, line, sourceId)
 
     if (formatted !== null) {
       log(formatted)
