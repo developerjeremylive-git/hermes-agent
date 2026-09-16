@@ -400,6 +400,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
       const progressChannel = `hermes:git:ghCloneRepo:progress:${callbackId}`
       const progressHandler = (_event, progress) => onProgress?.(progress)
       ipcRenderer.on(progressChannel, progressHandler)
+
       return ipcRenderer.invoke('hermes:git:ghCloneRepo', repoUrl, targetPath, callbackId).finally(() => {
         ipcRenderer.removeListener(progressChannel, progressHandler)
       })
@@ -410,6 +411,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
       const progressChannel = `hermes:git:glCloneRepo:progress:${callbackId}`
       const progressHandler = (_event, progress) => onProgress?.(progress)
       ipcRenderer.on(progressChannel, progressHandler)
+
       return ipcRenderer.invoke('hermes:git:glCloneRepo', repoUrl, targetPath, callbackId).finally(() => {
         ipcRenderer.removeListener(progressChannel, progressHandler)
       })
@@ -424,13 +426,15 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
     configGet: repoPath => ipcRenderer.invoke('hermes:git:config:get', repoPath),
     configSet: (repoPath, scope, username) => ipcRenderer.invoke('hermes:git:config:set', repoPath, scope, username),
     glConfigGet: repoPath => ipcRenderer.invoke('hermes:git:glConfig:get', repoPath),
-    glConfigSet: (repoPath, scope, username) => ipcRenderer.invoke('hermes:git:glConfig:set', repoPath, scope, username),
+    glConfigSet: (repoPath, scope, username) =>
+      ipcRenderer.invoke('hermes:git:glConfig:set', repoPath, scope, username),
     syncInfo: repoPath => ipcRenderer.invoke('hermes:git:syncInfo', repoPath),
     pull: repoPath => ipcRenderer.invoke('hermes:git:pull', repoPath),
     push: repoPath => ipcRenderer.invoke('hermes:git:push', repoPath),
     syncFork: repoPath => ipcRenderer.invoke('hermes:git:syncFork', repoPath),
     conflictFiles: repoPath => ipcRenderer.invoke('hermes:git:conflictFiles', repoPath),
-    resolveConflict: (repoPath, file, choice) => ipcRenderer.invoke('hermes:git:resolveConflict', repoPath, file, choice),
+    resolveConflict: (repoPath, file, choice) =>
+      ipcRenderer.invoke('hermes:git:resolveConflict', repoPath, file, choice),
     continueMerge: repoPath => ipcRenderer.invoke('hermes:git:continueMerge', repoPath),
     abortMerge: repoPath => ipcRenderer.invoke('hermes:git:abortMerge', repoPath),
     onGhLoginEvent: callback => {

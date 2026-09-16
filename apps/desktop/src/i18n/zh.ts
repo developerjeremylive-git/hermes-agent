@@ -501,8 +501,7 @@ export const zh = defineLocale({
       openRepoOnGitHub: '在 GitHub 上打开',
       openRepoFolderFailed: '无法打开文件夹',
       syncFork: count => `同步 ${count}`,
-      syncForkHint: count =>
-        `更新分支以通过从上游仓库同步 ${count} 个提交来保持此分支最新。`,
+      syncForkHint: count => `更新分支以通过从上游仓库同步 ${count} 个提交来保持此分支最新。`,
       syncingFork: '正在同步。',
       forkSynced: '分叉已与上游同步',
       syncForkFailed: '无法同步分叉',
@@ -522,8 +521,7 @@ export const zh = defineLocale({
       refreshSync: '刷新状态',
       branchHasConflicts: '此分支有冲突必须解决',
       allConflictsResolved: '所有冲突已解决',
-      branchAheadBehind: (ahead, behind) =>
-        `此分支领先 ${ahead} 个提交，落后 ${behind} 个提交。`,
+      branchAheadBehind: (ahead, behind) => `此分支领先 ${ahead} 个提交，落后 ${behind} 个提交。`,
       resolveConflicts: '解决冲突',
       loadingConflicts: '正在加载冲突文件…',
       noConflictsLeft: '所有冲突已解决。继续合并以完成。',

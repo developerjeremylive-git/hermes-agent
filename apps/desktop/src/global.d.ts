@@ -487,10 +487,12 @@ declare global {
           options?: { maxDepth?: number; enabled?: boolean; excludePaths?: string[] }
         ) => Promise<{ root: string; label: string }[]>
         ghProfile: () => Promise<HermesGitHubProfile>
-        configGet: (
-          repoPath: string
-        ) => Promise<{ ok: boolean; global: null | string; local: null | string }>
-        configSet: (repoPath: string, scope: 'global' | 'local', username: string) => Promise<{ ok: boolean; error?: string }>
+        configGet: (repoPath: string) => Promise<{ ok: boolean; global: null | string; local: null | string }>
+        configSet: (
+          repoPath: string,
+          scope: 'global' | 'local',
+          username: string
+        ) => Promise<{ ok: boolean; error?: string }>
         ghLoginStart: () => Promise<null | { code: string; url: string; error?: string }>
         ghLoginCancel: () => Promise<boolean>
         onGhLoginEvent: (callback: (payload: { ok: boolean }) => void) => () => void
@@ -498,14 +500,24 @@ declare global {
         glProfile: () => Promise<HermesGitLabProfile>
         glLoginWithToken: (token: string) => Promise<{ ok: boolean; error?: string }>
         glLogout: (login: string) => Promise<{ ok: boolean }>
-        glConfigGet: (
-          repoPath: string
-        ) => Promise<{ ok: boolean; global: null | string; local: null | string }>
-        glConfigSet: (repoPath: string, scope: 'global' | 'local', username: string) => Promise<{ ok: boolean; error?: string }>
+        glConfigGet: (repoPath: string) => Promise<{ ok: boolean; global: null | string; local: null | string }>
+        glConfigSet: (
+          repoPath: string,
+          scope: 'global' | 'local',
+          username: string
+        ) => Promise<{ ok: boolean; error?: string }>
         ghListRepos: () => Promise<HermesRemoteRepoList>
-        ghCloneRepo: (repoUrl: string, targetPath: string, onProgress?: (progress: HermesCloneProgress) => void) => Promise<HermesCloneResult>
+        ghCloneRepo: (
+          repoUrl: string,
+          targetPath: string,
+          onProgress?: (progress: HermesCloneProgress) => void
+        ) => Promise<HermesCloneResult>
         glListRepos: () => Promise<HermesRemoteRepoList>
-        glCloneRepo: (repoUrl: string, targetPath: string, onProgress?: (progress: HermesCloneProgress) => void) => Promise<HermesCloneResult>
+        glCloneRepo: (
+          repoUrl: string,
+          targetPath: string,
+          onProgress?: (progress: HermesCloneProgress) => void
+        ) => Promise<HermesCloneResult>
         workdir: {
           get: () => Promise<{ dir: string | null; defaultLabel: string; resolvedCwd: string }>
           pick: () => Promise<{ canceled: boolean; dir: string | null }>
