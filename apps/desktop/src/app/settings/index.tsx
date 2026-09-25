@@ -264,17 +264,6 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             }
 
             return [entry]
-                {
-                  active: activeView === 'vault',
-                  icon: ShieldLock,
-                  id: 'vault',
-                  label: t.settings.nav.vault,
-                  onSelect: () => setActiveView('vault')
-                }
-              ]
-            }
-
-            return [entry]
           }),
           {
             active: activeView === 'notifications',
@@ -362,6 +351,20 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
             id: 'gateway',
             label: t.settings.nav.gateway,
             onSelect: () => setActiveView('gateway')
+          },
+          {
+            active: activeView === 'github',
+            icon: GitBranch,
+            id: 'github',
+            label: t.settings.nav.github,
+            onSelect: () => setActiveView('github')
+          },
+          {
+            active: activeView === 'gitlab',
+            icon: GitBranch,
+            id: 'gitlab',
+            label: t.settings.nav.gitlab,
+            onSelect: () => setActiveView('gitlab')
           },
           {
             active: activeView === 'keybinds',
@@ -537,6 +540,10 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
       // 'connections' renders the unified page too so the frame before
       // the alias redirect lands doesn't flash the fallback view.
       <GatewaySettings subpage={subpage} />
+    ) : activeView === 'github' ? (
+      <GitHubSettings activeView={activeView} onClose={onClose} />
+    ) : activeView === 'gitlab' ? (
+      <GitLabSettings activeView={activeView} onClose={onClose} />
     ) : activeView === 'keybinds' ? (
       <KeybindSettings subpage={subpage} />
     ) : activeView.startsWith('config:') ? (
