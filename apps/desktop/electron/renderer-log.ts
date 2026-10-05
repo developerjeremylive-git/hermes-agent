@@ -15,46 +15,61 @@
  * tokens or PII we never want on disk.
  */
 
+type ConsoleMessageLevel = 'info' | 'warning' | 'error' | 'debug'
+
+interface ConsoleMessageEventLike {
+  level?: unknown
+  message?: unknown
+  sourceId?: unknown
+  lineNumber?: unknown
+}
+
 interface ConsoleMessageDetails {
-  level: number
+  level: ConsoleMessageLevel
   message: string
-  sourceUrl: string
+  sourceId: string
   lineNumber: number
 }
 
 interface WebContentsLike {
-  on(event: 'console-message', listener: (...args: unknown[]) => void): unknown
+  on(event: 'console-message', listener: (event: ConsoleMessageEventLike) => void): unknown
 }
 
 interface WindowLike {
   webContents: WebContentsLike
 }
 
-/** Normalize Electron's two `console-message` signatures into one line, or
- *  null for non-error levels. Canonical (Electron 36+): `(event, details)`;
- *  deprecated positional: `(event, level, message, line, sourceId)`.
- *  `level` is numeric 0..3, where 3 === error. */
-export function formatRendererConsoleLine(
-  label: string,
-  detailsOrLevel: unknown,
-  message?: unknown,
-  line?: unknown,
-  sourceId?: unknown
-): string | null {
-  const details =
-    detailsOrLevel && typeof detailsOrLevel === 'object' ? (detailsOrLevel as ConsoleMessageDetails) : null
+let didReportConsoleMessageSignatureDrift = false
 
-  const level = details ? details.level : detailsOrLevel
+function isConsoleMessageDetails(value: unknown): value is ConsoleMessageDetails {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
 
-  if (level !== 3) {
+  const event = value as ConsoleMessageEventLike
+
+  const isKnownLevel =
+    event.level === 'info' || event.level === 'warning' || event.level === 'error' || event.level === 'debug'
+
+  return (
+    isKnownLevel &&
+    typeof event.message === 'string' &&
+    typeof event.sourceId === 'string' &&
+    typeof event.lineNumber === 'number'
+  )
+}
+
+/** Format Electron's canonical console-message event object into one line, or
+ *  null for non-error or malformed events. Hermes's pinned Electron 40.x line
+ *  puts severity and source metadata on the event object itself; accepting one
+ *  listener argument also avoids Electron's deprecated positional
+ *  `(event, level, message, line, sourceId)` path. */
+export function formatRendererConsoleLine(label: string, details: ConsoleMessageEventLike): string | null {
+  if (!isConsoleMessageDetails(details) || details.level !== 'error') {
     return null
   }
 
-  const text = details ? details.message : message
-  const src = details ? details.sourceUrl : sourceId
-  const lineNo = details ? details.lineNumber : line
-
-  return `[renderer console:${label}] ${String(text)} (${String(src)}:${String(lineNo)})`
+  return `[renderer console:${label}] ${details.message} (${details.sourceId}:${String(details.lineNumber)})`
 }
 
 /** Attach the error-level console hook to a renderer window. `log` is the
@@ -64,14 +79,29 @@ export function formatRendererConsoleLine(
  *  `{ level, message, lineNumber, sourceUrl }`. The formatRendererConsoleLine
  *  helper still accepts the legacy positional args for any stragglers. */
 export function attachRendererConsoleCapture(win: WindowLike, label: string, log: (line: string) => void): void {
-  win.webContents.on('console-message', (event: any) => {
-    // Electron 36+ sends a single event object with details
+win.webContents.on('console-message', (event: any) => {
+  if (!isConsoleMessageDetails(event)) {
+    if (!didReportConsoleMessageSignatureDrift) {
+      didReportConsoleMessageSignatureDrift = true
+      log('[renderer console] Electron console-message signature drift detected; renderer errors may not be captured')
+    }
+
+    // Fall back to legacy positional handling so straggler signatures are still captured
     const details = event?.level !== undefined ? event : null
     const level = details?.level ?? event
     const message = details?.message
     const line = details?.lineNumber
     const sourceId = details?.sourceUrl
     const formatted = formatRendererConsoleLine(label, level, message, line, sourceId)
+
+    if (formatted !== null) {
+      log(formatted)
+    }
+
+    return
+  }
+
+  const formatted = formatRendererConsoleLine(label, event)
 
     if (formatted !== null) {
       log(formatted)
