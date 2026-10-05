@@ -79,29 +79,29 @@ export function formatRendererConsoleLine(label: string, details: ConsoleMessage
  *  `{ level, message, lineNumber, sourceUrl }`. The formatRendererConsoleLine
  *  helper still accepts the legacy positional args for any stragglers. */
 export function attachRendererConsoleCapture(win: WindowLike, label: string, log: (line: string) => void): void {
-win.webContents.on('console-message', (event: any) => {
-  if (!isConsoleMessageDetails(event)) {
-    if (!didReportConsoleMessageSignatureDrift) {
-      didReportConsoleMessageSignatureDrift = true
-      log('[renderer console] Electron console-message signature drift detected; renderer errors may not be captured')
+  win.webContents.on('console-message', (event: any) => {
+    if (!isConsoleMessageDetails(event)) {
+      if (!didReportConsoleMessageSignatureDrift) {
+        didReportConsoleMessageSignatureDrift = true
+        log('[renderer console] Electron console-message signature drift detected; renderer errors may not be captured')
+      }
+
+      // Fall back to legacy positional handling so straggler signatures are still captured
+      const details = event?.level !== undefined ? event : null
+      const level = details?.level ?? event
+      const message = details?.message
+      const line = details?.lineNumber
+      const sourceId = details?.sourceUrl
+      const formatted = formatRendererConsoleLine(label, level, message, line, sourceId)
+
+      if (formatted !== null) {
+        log(formatted)
+      }
+
+      return
     }
 
-    // Fall back to legacy positional handling so straggler signatures are still captured
-    const details = event?.level !== undefined ? event : null
-    const level = details?.level ?? event
-    const message = details?.message
-    const line = details?.lineNumber
-    const sourceId = details?.sourceUrl
-    const formatted = formatRendererConsoleLine(label, level, message, line, sourceId)
-
-    if (formatted !== null) {
-      log(formatted)
-    }
-
-    return
-  }
-
-  const formatted = formatRendererConsoleLine(label, event)
+    const formatted = formatRendererConsoleLine(label, event)
 
     if (formatted !== null) {
       log(formatted)

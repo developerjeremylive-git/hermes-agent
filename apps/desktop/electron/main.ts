@@ -305,7 +305,7 @@ import {
 } from './git-review-ops'
 import { gitRootForIpc } from './git-root'
 import { initRepository } from './git-worktree-ops'
-import { desktopBackendSpawnEnv, guestOnboardingEnabled, skipIntroEnabled } from './guest-onboarding'
+import { desktopBackendSpawnEnv, guestOnboardingEnabled } from './guest-onboarding'
 import { readAndConsumeHandoffResult } from './handoff-result'
 import {
   assertExistingPathForOpen,
@@ -3648,6 +3648,7 @@ function resolveGlabBinary() {
     const bundledGlab = IS_WINDOWS
       ? path.join(process.resourcesPath, 'glab', 'glab.exe')
       : path.join(process.resourcesPath, 'glab', 'glab')
+
     candidates.push(bundledGlab)
   }
 
@@ -3656,6 +3657,7 @@ function resolveGlabBinary() {
     const devGlab = IS_WINDOWS
       ? path.join(app.getAppPath(), 'build', 'glab', 'glab.exe')
       : path.join(app.getAppPath(), 'build', 'glab', 'glab')
+
     candidates.push(devGlab)
   }
 
@@ -3667,7 +3669,12 @@ function resolveGlabBinary() {
     }
   } else {
     const home = app.getPath('home')
-    candidates.push('/opt/homebrew/bin/glab', '/usr/local/bin/glab', '/usr/bin/glab', path.join(home, '.local', 'bin', 'glab'))
+    candidates.push(
+      '/opt/homebrew/bin/glab',
+      '/usr/local/bin/glab',
+      '/usr/bin/glab',
+      path.join(home, '.local', 'bin', 'glab')
+    )
   }
 
   _glabBinaryCache = candidates.find(fileExists) || findOnPath('glab') || 'glab'
@@ -18838,6 +18845,7 @@ ipcMain.handle('hermes:git:ghCloneRepo', async (_event, repoUrl, targetPath, cal
       mainWindow.webContents.send(`hermes:git:ghCloneRepo:progress:${callbackId}`, progress)
     }
   })
+
   return result
 })
 
@@ -18849,6 +18857,7 @@ ipcMain.handle('hermes:git:glCloneRepo', async (_event, repoUrl, targetPath, cal
       mainWindow.webContents.send(`hermes:git:glCloneRepo:progress:${callbackId}`, progress)
     }
   })
+
   return result
 })
 
