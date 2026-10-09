@@ -4,7 +4,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/copy-button'
 import { Loader } from '@/components/ui/loader'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { HermesGitHubProfile } from '@/global'
 import { useI18n } from '@/i18n'
 import { isDesktopFsRemoteMode } from '@/lib/desktop-fs'
@@ -12,12 +11,11 @@ import { desktopGit } from '@/lib/desktop-git'
 import { notify, readableError } from '@/store/notifications'
 import { applyConfiguredGitWorkdir, commitWorkspaceCwdForSelectedSession } from '@/store/session'
 
+import { GitProjectsView, type GitSettingsTab, GitSettingsTabs } from './git-projects-view'
 import { RemoteRepoBrowser } from './remote-repo-browser'
 import { RepoListSection } from './repo-list-section'
 
 const J_AI_PRODUCTS_ROOT = 'J:\\AI_Products'
-
-type GitHubSettingsTab = 'connection' | 'repositories'
 
 type GitHubSettingsProps = {
   activeView: string
@@ -35,7 +33,7 @@ export function GitHubSettings({ activeView, onClose }: GitHubSettingsProps) {
 
   const isGitHubView = activeView === 'github' || activeView === 'config:github'
 
-  const [tab, setTab] = useState<GitHubSettingsTab>('connection')
+  const [tab, setTab] = useState<GitSettingsTab>('connection')
 
   const [profile, setProfile] = useState<HermesGitHubProfile | null>(null)
   const [login, setLogin] = useState<LoginState>({ phase: 'idle' })
@@ -260,14 +258,11 @@ export function GitHubSettings({ activeView, onClose }: GitHubSettingsProps) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="border-b border-(--ui-stroke-secondary) px-6 pb-3 pt-4">
-        <Tabs onValueChange={value => setTab(value as GitHubSettingsTab)} value={tab}>
-          <TabsList>
-            <TabsTrigger value="connection">{t.settings.gitProjects.tabConnection}</TabsTrigger>
-            <TabsTrigger value="repositories">{t.settings.gitProjects.tabRepositories}</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <GitSettingsTabs onTabChange={setTab} tab={tab} />
       </div>
-      {tab === 'repositories' ? (
+      {tab === 'projects' ? (
+        <GitProjectsView onClose={onClose} provider="github" />
+      ) : tab === 'repositories' ? (
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           <h2 className="text-lg font-medium mb-4">{t.settings.gitHub.remoteRepositories}</h2>
           <RemoteRepoBrowser disabled={busy} host="github" />

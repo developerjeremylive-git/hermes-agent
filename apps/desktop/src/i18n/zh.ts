@@ -566,7 +566,21 @@ export const zhOverrides = {
     gitProjects: {
       tabConnection: '连接',
       tabProjects: '项目',
-      tabRepositories: '仓库'
+      tabRepositories: '仓库',
+      projectsTitle: '项目',
+      projectsHint: '拥有 Hermes 聊天的项目，以卡片显示。选择项目以查看其聊天。',
+      noProjects: '暂无项目。在仓库文件夹中开始聊天后，项目会显示在这里。',
+      chatsCount: count => `${count} 个聊天`,
+      chats: '聊天',
+      noChats: '此项目暂无聊天。',
+      loading: '加载中…',
+      projectsUnavailable: '此后端不支持项目功能。请更新 Hermes 以使用此视图。',
+      categoryHome: '主页',
+      categoryCDrive: 'C: 盘',
+      categoryJDrive: 'AI Products',
+      categoryOther: '其他',
+      showLocalReposWithZeroChats: '显示聊天数为 0 的本地仓库',
+      showAIProductsReposWithZeroChats: '显示聊天数为 0 的 AI Products 仓库'
     },
     gitHub: {
       title: 'GitHub',

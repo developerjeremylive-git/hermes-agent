@@ -656,6 +656,20 @@ export interface Translations extends NoticeTranslations {
       tabConnection: string
       tabProjects: string
       tabRepositories: string
+      projectsTitle: string
+      projectsHint: string
+      noProjects: string
+      chatsCount: (count: number) => string
+      chats: string
+      noChats: string
+      loading: string
+      projectsUnavailable: string
+      categoryHome: string
+      categoryCDrive: string
+      categoryJDrive: string
+      categoryOther: string
+      showLocalReposWithZeroChats: string
+      showAIProductsReposWithZeroChats: string
     }
     gitHub: {
       title: string

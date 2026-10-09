@@ -13,6 +13,8 @@ import re
 import unicodedata
 from typing import Any, Callable, Optional
 
+from . import git_probe
+
 # cwd -> ``{"repo_root", "worktree_root"}`` (COMMON main root / this cwd's checkout root);
 # ``None`` when not in git or unprobeable (remote backend).
 Resolve = Callable[[str], Optional[dict]]
@@ -279,6 +281,7 @@ def _build_repos(sessions: list[dict], resolve: Optional[Resolve], hydrate: bool
         repo["sessionCount"] += len(group["sessions"])
     repo_list = list(repos.values())
     for repo in repo_list:
+        repo["gitProvider"] = git_probe.provider(repo["path"])
         repo["groups"] = sorted(repo["groups"], key=_lane_sort_key)
         _disambiguate_labels(repo["groups"])
         # Drop per-lane rows only AFTER sorting (_lane_sort_key reads them); counts stay.
@@ -304,7 +307,9 @@ def _seed_folder_repos(
         root_key = _path_key(root)
         if not root_key or root_key in seen:
             continue
-        seeded.append(_repo_node(root, base_name(root) or root))
+        entry = _repo_node(root, base_name(root) or root)
+        entry["gitProvider"] = git_probe.provider(root)
+        seeded.append(entry)
         seen.add(root_key)
     if len(seeded) != len(repos):
         _disambiguate_labels(seeded)

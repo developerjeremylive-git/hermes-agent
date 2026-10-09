@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Loader } from '@/components/ui/loader'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { HermesGitLabProfile } from '@/global'
 import { useI18n } from '@/i18n'
 import { isDesktopFsRemoteMode } from '@/lib/desktop-fs'
@@ -14,13 +13,12 @@ import { openExternalLink } from '@/lib/external-link'
 import { notify, readableError } from '@/store/notifications'
 import { applyConfiguredGitWorkdir, commitWorkspaceCwdForSelectedSession } from '@/store/session'
 
+import { GitProjectsView, type GitSettingsTab, GitSettingsTabs } from './git-projects-view'
 import { RemoteRepoBrowser } from './remote-repo-browser'
 import { RepoListSection } from './repo-list-section'
 
 const J_AI_PRODUCTS_ROOT = 'J:\\AI_Products'
 const GITLAB_TOKEN_URL = 'https://gitlab.com/-/user_settings/personal_access_tokens'
-
-type GitLabSettingsTab = 'connection' | 'repositories'
 
 type GitLabSettingsProps = {
   activeView: string
@@ -33,7 +31,7 @@ export function GitLabSettings({ activeView, onClose }: GitLabSettingsProps) {
 
   const isGitLabView = activeView === 'gitlab' || activeView === 'config:gitlab'
 
-  const [tab, setTab] = useState<GitLabSettingsTab>('connection')
+  const [tab, setTab] = useState<GitSettingsTab>('connection')
 
   const [profile, setProfile] = useState<HermesGitLabProfile | null>(null)
   const [tokenDialog, setTokenDialog] = useState(false)
@@ -238,14 +236,11 @@ export function GitLabSettings({ activeView, onClose }: GitLabSettingsProps) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="border-b border-(--ui-stroke-secondary) px-6 pb-3 pt-4">
-        <Tabs onValueChange={value => setTab(value as GitLabSettingsTab)} value={tab}>
-          <TabsList>
-            <TabsTrigger value="connection">{t.settings.gitProjects.tabConnection}</TabsTrigger>
-            <TabsTrigger value="repositories">{t.settings.gitProjects.tabRepositories}</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <GitSettingsTabs onTabChange={setTab} tab={tab} />
       </div>
-      {tab === 'repositories' ? (
+      {tab === 'projects' ? (
+        <GitProjectsView onClose={onClose} provider="gitlab" />
+      ) : tab === 'repositories' ? (
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           <h2 className="text-lg font-medium mb-4">{tr.remoteRepositories}</h2>
           <RemoteRepoBrowser disabled={busy} host="gitlab" />

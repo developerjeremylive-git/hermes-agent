@@ -858,6 +858,8 @@ interface RepoScanState {
 const repoScanStates = new WeakMap<HermesGateway, RepoScanState>()
 const scanningGatewayGenerations = new WeakMap<HermesGateway, number>()
 
+const EXPLICIT_SCAN_COOLDOWN_MS = 3_000
+
 function syncReposScanning(): void {
   const gateway = activeGateway()
   $reposScanning.set(Boolean(gateway && scanningGatewayGenerations.has(gateway)))
@@ -865,7 +867,40 @@ function syncReposScanning(): void {
 
 $gateway.subscribe(syncReposScanning)
 
-export async function scanAndRecordRepos(force = false): Promise<void> {
+/** True while a Projects-view explicit scan owns the tree (see git-projects-view).
+ *  Exported so the sidebar can stand its background refreshes down in that mode. */
+export function explicitProjectsScanActive(): boolean {
+  return typeof window !== 'undefined' && Boolean((window as unknown as Record<string, unknown>).__explicitProjectsScanActive)
+}
+
+function lastExplicitProjectsScanAt(): number {
+  if (typeof window === 'undefined') {
+    return 0
+  }
+
+  return Number((window as unknown as Record<string, unknown>).__lastExplicitProjectsScanAt || 0)
+}
+
+/**
+ * Scan for repositories and record them for the active profile.
+ *
+ * `roots` restricts the crawl to explicit scan roots (the Projects view's
+ * "repos with 0 chats" checkboxes). The recorded policy stays the config one,
+ * because `record_repos` persists only a policy that matches the profile's
+ * config — advertising scan roots here would make the backend drop the very
+ * results the scan just walked.
+ *
+ * Background (config-policy) scans stand down while an explicit scan is active
+ * or within a short cooldown after one, or they would overwrite the filtered
+ * tree with the unfiltered config-policy result.
+ */
+export async function scanAndRecordRepos(force = false, roots?: string[]): Promise<void> {
+  const explicitRoots = Array.isArray(roots) && roots.length > 0
+
+  if (!explicitRoots && (explicitProjectsScanActive() || Date.now() - lastExplicitProjectsScanAt() < EXPLICIT_SCAN_COOLDOWN_MS)) {
+    return
+  }
+
   if (isDesktopFsRemoteMode()) {
     // On a remote backend the desktop can't crawl the host filesystem.
     // Ask the host to scan its own discovery roots (`projects.discover_repos`
@@ -928,6 +963,11 @@ export async function scanAndRecordRepos(force = false): Promise<void> {
 
   try {
     const policy = repoDiscoveryPolicyFromConfig(await getHermesConfig(context.profile))
+    // An explicit Projects-view scan restricts the crawl. The recorded policy
+    // stays the config one: `record_repos` persists only when the policy it
+    // carries matches the profile's config, so advertising scan roots here
+    // would make the backend drop the results it just walked.
+    const scanRoots = explicitRoots ? (roots as string[]) : policy.roots
     const signature = repoDiscoveryPolicySignature(policy)
 
     if (!force && (state.completedSignature === signature || state.runningSignature === signature)) {
@@ -947,7 +987,7 @@ export async function scanAndRecordRepos(force = false): Promise<void> {
       scanningGatewayGenerations.set(context.gateway, generation)
       syncReposScanning()
 
-      const repos = await scan(policy.roots, {
+      const repos = await scan(scanRoots, {
         enabled: true,
         excludePaths: policy.exclude_paths
       })

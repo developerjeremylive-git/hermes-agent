@@ -2514,6 +2514,7 @@ export interface ProjectTreeRepo {
   path?: string | null
   groups?: ProjectTreeLane[]
   sessionCount?: number
+  gitProvider?: string
 }
 /** One branch / worktree / kanban lane inside a repo; ``sessions`` is empty unless hydrated. */
 export interface ProjectTreeLane {

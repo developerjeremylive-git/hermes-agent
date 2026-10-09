@@ -18,6 +18,9 @@ export interface RepoScanOptions {
   // Platform override for the darwin-only TCC media-dir skip (tests force
   // 'darwin' on Linux CI; production omits it).
   platform?: NodeJS.Platform
+  // Home directory override, so a test can point the implicit AppData
+  // exclusion at a temp tree instead of the real one.
+  homeDir?: string
 }
 
 export interface RepoScanPathOptions {
@@ -117,9 +120,23 @@ export async function scanGitRepos(roots: string[], options: RepoScanOptions = {
   }
 
   const maxDepthValue = Number(options.maxDepth)
-  const maxDepth = Number.isFinite(maxDepthValue) && maxDepthValue >= 0 ? maxDepthValue : DEFAULT_MAX_DEPTH
-  const pathOptions: RepoScanPathOptions = options.platform ? { platform: options.platform } : {}
+  const defaultMaxDepth = Number.isFinite(maxDepthValue) && maxDepthValue >= 0 ? maxDepthValue : DEFAULT_MAX_DEPTH
+  const pathOptions: RepoScanPathOptions = {
+    ...(options.platform ? { platform: options.platform } : {}),
+    ...(options.homeDir ? { homeDir: options.homeDir } : {})
+  }
   const requestedRoots = Array.isArray(roots) && roots.length > 0 ? roots : [os.homedir()]
+  // A filesystem root (`C:\`, `J:\`, `/`) has one more path level than a home root
+  // before its real project folders begin, and its shallow children are
+  // overwhelmingly not repos — so DEFAULT_MAX_DEPTH would surface only the
+  // outermost folder of each tree. Deeper only for roots; home-scoped scans keep
+  // the bound.
+  const hasRootDrive = requestedRoots.some(root => {
+    const trimmed = String(root ?? '').trim()
+
+    return trimmed.length > 0 && path.parse(trimmed).root === trimmed
+  })
+  const maxDepth = hasRootDrive ? Math.max(defaultMaxDepth, 10) : defaultMaxDepth
 
   const searchRoots = [
     ...new Map(
@@ -130,9 +147,22 @@ export async function scanGitRepos(roots: string[], options: RepoScanOptions = {
     ).values()
   ]
 
-  const exclusions = (options.excludePaths ?? [])
-    .map(excluded => normalizeRepoScanPath(excluded, pathOptions))
-    .filter((entry): entry is NormalizedScanPath => entry !== null)
+  const exclusions = (() => {
+    const list = (options.excludePaths ?? [])
+      .map(excluded => normalizeRepoScanPath(excluded, pathOptions))
+      .filter((entry): entry is NormalizedScanPath => entry !== null)
+    // A whole-drive walk reaches the user's AppData tree, which is enormous and
+    // holds no user repositories — always exclude it for drive-root scans so the
+    // crawl stays bounded even when no policy exclusion names it.
+    if (hasRootDrive) {
+      const home = pathOptions.homeDir ?? os.homedir()
+      const appData = normalizeRepoScanPath(path.join(home, 'AppData'), pathOptions)
+      if (appData && !list.some(entry => entry.key === appData.key)) {
+        list.push(appData)
+      }
+    }
+    return list
+  })()
 
   const found = new Map<string, { root: string; label: string }>()
 
@@ -171,7 +201,14 @@ export async function scanGitRepos(roots: string[], options: RepoScanOptions = {
         })
       }
 
-      return
+      // A repo normally terminates the walk — its nested folders are its own
+      // checkout. But when the ROOT ITSELF is a repo (a drive root that happens
+      // to carry a `.git`, e.g. `J:\`), stopping here reports only the root and
+      // every real project underneath it vanishes. Keep descending in that case
+      // so `J:\AI_Products\...` is still discovered.
+      if (depth !== 0) {
+        return
+      }
     }
 
     const skipTccProtectedPaths = (pathOptions.platform ?? process.platform) === 'darwin'

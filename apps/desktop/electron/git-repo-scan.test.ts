@@ -79,6 +79,57 @@ describe('scanGitRepos', () => {
     const result = await scanGitRepos([root, repo], { enabled: true })
     expect(result).toEqual([{ label: 'repo', root: repo }])
   })
+
+  it('keeps descending past a scan root that is itself a repo', async () => {
+    // A drive root that happens to carry a `.git` (e.g. `J:\`) used to terminate
+    // the walk at itself, reporting one useless entry and hiding every real
+    // project underneath it.
+    const root = tempDir()
+    makeRepo(root)
+    const nested = makeRepoAt(root, 'AI_Products', 'someOrg', 'someProject')
+    const sibling = makeRepoAt(root, 'other', 'another')
+
+    const result = await scanGitRepos([root], { enabled: true })
+    expect(foundRoots(result)).toEqual([nested, root, sibling].sort())
+  })
+
+  it('still stops descending inside a nested repo', async () => {
+    const root = tempDir()
+    const repo = makeRepoAt(root, 'outer')
+    const inner = makeRepoAt(repo, 'inner')
+
+    const result = await scanGitRepos([root], { enabled: true })
+    expect(foundRoots(result)).toEqual([repo])
+    expect(result.some(entry => entry.root === inner)).toBe(false)
+  })
+
+  it('keeps the default depth bound for a non-root scan', async () => {
+    // Only filesystem-root scans get the widened bound; a scoped home/project
+    // root keeps DEFAULT_MAX_DEPTH so a bounded crawl stays bounded.
+    const root = tempDir()
+    const deep = makeRepoAt(root, 'AI_Products', 'org', 'team', 'project')
+
+    const result = await scanGitRepos([root], { enabled: true })
+    expect(foundRoots(result)).not.toContain(deep)
+
+    const withRoom = await scanGitRepos([root], { enabled: true, maxDepth: 5 })
+    expect(foundRoots(withRoom)).toContain(deep)
+  })
+
+  it('always excludes the home AppData tree for a drive-root scan', async () => {
+    const root = `${tempDir()}${path.sep}`
+    const fakeHome = tempDir()
+    const outside = makeRepoAt(root, 'projects', 'app')
+    const insideAppData = makeRepoAt(fakeHome, 'AppData', 'Local', 'cache', 'repo')
+
+    const result = await scanGitRepos([root], {
+      enabled: true,
+      homeDir: fakeHome,
+      platform: process.platform
+    })
+    expect(foundRoots(result)).toContain(outside)
+    expect(foundRoots(result)).not.toContain(insideAppData)
+  })
 })
 
 describe.runIf(process.platform !== 'win32')('macOS TCC-protected media exclusions (issue #57611 salvage)', () => {

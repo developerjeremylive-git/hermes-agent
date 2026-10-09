@@ -46,6 +46,9 @@ export interface SidebarWorkspaceTree {
   id: string
   label: string
   path: null | string
+  // Which forge hosts this repo, from its `origin` remote — drives the
+  // GitHub/GitLab badge and the per-provider filter in the Projects view.
+  gitProvider?: 'github' | 'gitlab' | 'other'
   groups: SidebarSessionGroup[]
   sessionCount: number
 }

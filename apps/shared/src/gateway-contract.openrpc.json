@@ -25515,6 +25515,11 @@
             "default": 0,
             "title": "Sessioncount",
             "type": "integer"
+          },
+          "gitProvider": {
+            "default": "other",
+            "title": "Gitprovider",
+            "type": "string"
           }
         },
         "required": [

@@ -97,6 +97,7 @@ import {
   $projectTreeLoading,
   $reposScanning,
   enterProject,
+  explicitProjectsScanActive,
   followEnteredProjectCwd,
   openProjectCreate,
   refreshProjects,
@@ -940,6 +941,14 @@ export function ChatSidebar({
 
     const onActive = () => {
       if (document.visibilityState === 'hidden') {
+        return
+      }
+
+      // Skip automatic tree refresh and discovery while the Projects view's
+      // explicit "repos with 0 chats" checkbox is active. That scan owns the
+      // tree in that mode; an extra focus refresh races it and overwrites the
+      // filtered results with unfiltered data.
+      if (worktreeGroupingActive && explicitProjectsScanActive()) {
         return
       }
 

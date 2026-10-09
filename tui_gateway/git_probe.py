@@ -128,6 +128,38 @@ def resolve(cwd: str) -> dict | None:
     return {"repo_root": common_repo_root(cwd) or worktree_root, "worktree_root": worktree_root}
 
 
+# Forge host -> the provider label the desktop renders. Matched against the
+# `origin` remote URL so a repo's badge follows where it is actually hosted.
+_PROVIDER_HOSTS = (
+    ("github.com", "github"),
+    ("gitlab.com", "gitlab"),
+)
+
+
+def provider(cwd: str) -> str:
+    """Which forge hosts the repo at ``cwd``: ``github`` / ``gitlab`` / ``other``.
+
+    Reads the ``origin`` remote URL and matches the host, so self-hosted GitLab
+    instances under other domains report ``other`` rather than guessing.
+    Cached per repo root: the tree builds this for every repo on every refresh.
+    """
+    if not cwd:
+        return "other"
+
+    def _probe() -> str:
+        url = run_git(cwd, "remote", "get-url", "origin").lower()
+        if not url:
+            # No remote (or git failed): report a positive `other` so the cache
+            # stores it rather than treating it as a miss and re-spawning git.
+            return "other"
+        for host, name in _PROVIDER_HOSTS:
+            if f"//{host}/" in url or url.startswith(f"git@{host}:") or f"/{host}/" in url:
+                return name
+        return "other"
+
+    return _cache.resolve(f"provider:{cwd}", _probe)
+
+
 def warm_roots(cwds: Iterable[str], max_workers: int = _WARM_WORKERS) -> None:
     """Pre-resolve many cwds' roots in parallel (bounded) so a cold first paint
     doesn't serialize one git spawn per session cwd; results land in the cache."""

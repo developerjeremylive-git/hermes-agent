@@ -259,6 +259,9 @@ class ProjectTreeRepo(Result):
     path: str | None = None
     groups: list[ProjectTreeLane] = Field(default_factory=list)
     sessionCount: int = 0
+    # Which forge hosts this repo (from its `origin` remote): the desktop's
+    # Projects view badges and filters on it.
+    gitProvider: str = "other"
 
 
 class ProjectTreeNode(Result):

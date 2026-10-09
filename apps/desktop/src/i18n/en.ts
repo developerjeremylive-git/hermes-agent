@@ -792,7 +792,21 @@ export const en: Translations = {
     gitProjects: {
       tabConnection: 'Connection',
       tabProjects: 'Projects',
-      tabRepositories: 'Repositories'
+      tabRepositories: 'Repositories',
+      projectsTitle: 'Projects',
+      projectsHint: 'Projects that own Hermes chats, shown as cards. Select a project to see its chats.',
+      noProjects: 'No projects yet. Start a chat inside a repository folder and it will show up here.',
+      chatsCount: count => `${count} chat${count === 1 ? '' : 's'}`,
+      chats: 'Chats',
+      noChats: 'No chats in this project yet.',
+      loading: 'Loading…',
+      projectsUnavailable: 'Projects are not available on this backend. Update Hermes to use this view.',
+      categoryHome: 'Home',
+      categoryCDrive: 'C: Drive',
+      categoryJDrive: 'AI Products',
+      categoryOther: 'Other',
+      showLocalReposWithZeroChats: 'Show local repos with 0 chats',
+      showAIProductsReposWithZeroChats: 'Show AI Products repos with 0 chats'
     },
     gitHub: {
       title: 'GitHub',
