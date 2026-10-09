@@ -591,6 +591,20 @@ declare global {
         pull: (repoPath: string) => Promise<void>
         push: (repoPath: string) => Promise<void>
         syncFork: (repoPath: string) => Promise<void>
+        // Merge-conflict resolution for the settings repo lists. conflictFiles
+        // lists the conflicted paths with their current worktree content
+        // (conflict markers included; null when oversized/binary); resolveConflict
+        // resolves one file to ours/theirs/both and stages it; continueMerge
+        // finishes the merge once every conflict is resolved (preserving the
+        // branch's own commits); abortMerge discards the in-progress merge back
+        // to the pre-pull state. All reject when the repo isn't in a resolvable
+        // conflicted merge so the renderer can surface the error.
+        conflictFiles: (repoPath: string) => Promise<{ files: { content: null | string; path: string }[] }>
+        resolveConflict: (
+          repoPath: string,
+          file: string,
+          choice: 'both' | 'ours' | 'theirs'
+        ) => Promise<{ ok: boolean }>
         continueMerge: (repoPath: string) => Promise<{ ok: boolean }>
         abortMerge: (repoPath: string) => Promise<{ ok: boolean }>
         repoStatus: (repoPath: string) => Promise<HermesRepoStatus | null>

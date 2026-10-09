@@ -17,7 +17,10 @@ import { GitProjectsView, type GitSettingsTab, GitSettingsTabs } from './git-pro
 import { RemoteRepoBrowser } from './remote-repo-browser'
 import { RepoListSection } from './repo-list-section'
 
+// Repos folder on the J: drive, surfaced as its own section below the
+// home-directory scan.
 const J_AI_PRODUCTS_ROOT = 'J:\\AI_Products'
+
 const GITLAB_TOKEN_URL = 'https://gitlab.com/-/user_settings/personal_access_tokens'
 
 type GitLabSettingsProps = {
@@ -65,6 +68,8 @@ export function GitLabSettings({ activeView, onClose }: GitLabSettingsProps) {
     }
   }, [isGitLabView])
 
+  // glab has no non-interactive browser login (its prompts need a TTY), so the
+  // connect flow signs in with a personal access token instead of a device code.
   const loginWithToken = useCallback(async () => {
     const git = desktopGit()
     const trimmed = token.trim()

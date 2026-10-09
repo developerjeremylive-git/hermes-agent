@@ -23,6 +23,8 @@ import { refreshRepoStatus } from '@/store/coding-status'
 import { notify, readableError } from '@/store/notifications'
 import { requestStartWorkSession } from '@/store/projects'
 
+import { ConflictResolverDialog } from './conflict-resolver'
+
 export type RepoSortMode = 'lastCommit' | 'name'
 
 type RepoInfo = {
@@ -54,6 +56,7 @@ type RepoListSectionProps = {
   roots: string[]
   title: string
   hint: string
+  /** Which forge the rows point at — picks the remote URL, the "open on" label, and the credential config. */
   host?: RepoListHost
   disabled?: boolean
   onSelectRepo: (root: string) => void
@@ -68,6 +71,8 @@ export function formatCommitDate(ms: number): string {
 
 export function RepoListSection({ roots, title, hint, host = 'github', disabled, onSelectRepo }: RepoListSectionProps) {
   const { t } = useI18n()
+
+  // Forge-specific strings: every host block mirrors the same key set.
   const tr = host === 'gitlab' ? t.settings.gitLab : t.settings.gitHub
 
   const [repos, setRepos] = useState<{ root: string; label: string }[]>([])
@@ -87,6 +92,9 @@ export function RepoListSection({ roots, title, hint, host = 'github', disabled,
   const [accountUsername, setAccountUsername] = useState('')
   const scanGeneration = useRef(0)
 
+  // The connected profile of the section's host, if any — used to prefill the
+  // repo credential without prompting. Optional calls: an older backend bridge
+  // may not expose the glab surface yet.
   const getHostUsername = useCallback(async (): Promise<string | null> => {
     const git = window.hermesDesktop?.git
 
@@ -191,6 +199,8 @@ export function RepoListSection({ roots, title, hint, host = 'github', disabled,
   }, [accountDialog, accountUsername, applyAccountConfig])
 
   const sortedRepos = useMemo(() => {
+    // The GitLab list only carries repos whose remote actually points at
+    // gitlab.com — decided per repo once its syncInfo (remote URL) arrives.
     const pool = host === 'gitlab' ? repos.filter(repo => repoSyncInfo[repo.root]?.gitlabUrl) : [...repos]
     const copy = [...pool]
 
@@ -227,6 +237,8 @@ export function RepoListSection({ roots, title, hint, host = 'github', disabled,
     return copy
   }, [host, repos, repoSyncInfo, sortMode, searchQuery])
 
+  // While any repo's remote is still unresolved, the GitLab filter can't trust
+  // an empty list — show a loader instead of a false "no repositories".
   const resolvingRepos = host === 'gitlab' && repos.some(repo => !syncSettled[repo.root])
 
   const refresh = useCallback(async () => {
@@ -289,6 +301,8 @@ export function RepoListSection({ roots, title, hint, host = 'github', disabled,
     }
   }, [roots, fetchRepoConfig])
 
+
+
   const refreshSyncInfo = useCallback(
     async (root: string) => {
       const git = desktopGit()
@@ -318,6 +332,13 @@ export function RepoListSection({ roots, title, hint, host = 'github', disabled,
     [fetchRepoConfig]
   )
 
+  // A failed sync leaves the repo in one of three states that block a retry:
+  // unresolved conflicts, an interrupted merge, or local uncommitted changes
+  // the merge would overwrite (git aborts pre-merge, so no markers are written
+  // and `conflicted` stays false). All three need a decision the agent chat can
+  // make; pure network/auth failures leave the tree clean and are not its job.
+  // Merge conflict markers in source files also cause Vite parse errors in dev
+  // mode, so auto-resolving via a Hermes Agent chat removes them.
   const resolveConflictsIfNeeded = useCallback(
     async (root: string) => {
       const git = desktopGit()
@@ -329,7 +350,7 @@ export function RepoListSection({ roots, title, hint, host = 'github', disabled,
       const info = await git.syncInfo(root).catch(() => null)
 
       if (info?.conflicted || info?.mergeInProgress) {
-        void requestStartWorkSession(root, t.settings.gitHub.resolveConflictsWithAgentPrompt)
+        void requestStartWorkSession(root, t.settings.gitHub.resolveConflictsWithAgentPrompt, { autoSubmit: true })
 
         return
       }
@@ -345,7 +366,7 @@ export function RepoListSection({ roots, title, hint, host = 'github', disabled,
       }
 
       if (status && status.changed > 0) {
-        void requestStartWorkSession(root, t.settings.gitHub.resolveConflictsWithAgentPrompt)
+        void requestStartWorkSession(root, t.settings.gitHub.resolveConflictsWithAgentPrompt, { autoSubmit: true })
       }
     },
     [t]
@@ -705,6 +726,20 @@ export function RepoListSection({ roots, title, hint, host = 'github', disabled,
           </ul>
         </div>
       )}
+      {conflictRepo ? (
+        <ConflictResolverDialog
+          ahead={repoSyncInfo[conflictRepo]?.ahead ?? 0}
+          behind={repoSyncInfo[conflictRepo]?.behind ?? 0}
+          onClose={() => setConflictRepo(null)}
+          onResolved={() => {
+            void refreshSyncInfo(conflictRepo)
+            void refreshRepoStatus(conflictRepo)
+            void resolveConflictsIfNeeded(conflictRepo)
+          }}
+          open
+          repoRoot={conflictRepo}
+        />
+      ) : null}
       <Dialog
         onOpenChange={open => {
           if (!open) {

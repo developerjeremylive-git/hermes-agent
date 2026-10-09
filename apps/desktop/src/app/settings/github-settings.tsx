@@ -15,6 +15,8 @@ import { GitProjectsView, type GitSettingsTab, GitSettingsTabs } from './git-pro
 import { RemoteRepoBrowser } from './remote-repo-browser'
 import { RepoListSection } from './repo-list-section'
 
+// Repos folder on the J: drive, surfaced as its own section below the
+// home-directory scan.
 const J_AI_PRODUCTS_ROOT = 'J:\\AI_Products'
 
 type GitHubSettingsProps = {

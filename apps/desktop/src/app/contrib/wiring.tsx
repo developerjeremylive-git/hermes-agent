@@ -593,25 +593,6 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     [activeSessionIdRef, openNewSessionTile, requestGateway, startFreshSessionDraft]
   )
 
-  // Composer "branch off into a new worktree": open a fresh session anchored
-  // to the just-created tree, then prefill the task that kicked it off.
-  const startWorkSessionRequest = useStore($startWorkSessionRequest)
-  const lastStartWorkTokenRef = useRef(startWorkSessionRequest?.token ?? 0)
-
-  // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
-  useEffect(() => {
-    if (!startWorkSessionRequest || startWorkSessionRequest.token === lastStartWorkTokenRef.current) {
-      return
-    }
-
-    lastStartWorkTokenRef.current = startWorkSessionRequest.token
-    startSessionInWorkspace(startWorkSessionRequest.path, { openTab: startWorkSessionRequest.openTab })
-
-    if (startWorkSessionRequest.draft) {
-      requestComposerInsert(startWorkSessionRequest.draft, { target: 'main' })
-    }
-  }, [startSessionInWorkspace, startWorkSessionRequest])
-
   const adoptSessionRoute = useCallback(
     async (storedSessionId: string) => {
       creatingSessionRef.current = true
@@ -704,6 +685,32 @@ export function ContribWiring({ children }: { children: ReactNode }) {
     sttEnabled,
     updateSessionState
   })
+
+  // Composer "branch off into a new worktree": open a fresh session anchored
+  // to the just-created tree, then prefill the task that kicked it off.
+  // Must stay below usePromptActions — the effect closes over `submitText`.
+  const startWorkSessionRequest = useStore($startWorkSessionRequest)
+  const lastStartWorkTokenRef = useRef(startWorkSessionRequest?.token ?? 0)
+
+  // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
+  useEffect(() => {
+    if (!startWorkSessionRequest || startWorkSessionRequest.token === lastStartWorkTokenRef.current) {
+      return
+    }
+
+    lastStartWorkTokenRef.current = startWorkSessionRequest.token
+    startSessionInWorkspace(startWorkSessionRequest.path, { openTab: startWorkSessionRequest.openTab })
+
+    if (startWorkSessionRequest.draft) {
+      if (startWorkSessionRequest.autoSubmit) {
+        // The conflict-resolver hand-off sends the draft immediately; the
+        // submit creates the backend session anchored to the repo folder.
+        void submitText(startWorkSessionRequest.draft)
+      } else {
+        requestComposerInsert(startWorkSessionRequest.draft, { target: 'main' })
+      }
+    }
+  }, [startSessionInWorkspace, startWorkSessionRequest, submitText])
 
   const runKickoffSlash = useCallback<KickoffSlashCommand>(
     (command, options) => executeSlashCommand(command, { ...options, typed: false }),

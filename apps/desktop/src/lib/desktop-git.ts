@@ -144,6 +144,14 @@ const remoteGit: GitBridge = {
   pull: async () => {},
   push: async () => {},
   syncFork: async () => {},
+  // Merge-conflict resolution is the same local-machine git fact as pull: the
+  // conflicted files live on Electron's filesystem, so the resolver degrades to
+  // "no conflicts to list" (syncInfo reports conflicted: false anyway) and the
+  // mutations throw like pull.
+  conflictFiles: async () => ({ files: [] }),
+  resolveConflict: async () => {
+    throw new Error('Resolving conflicts is not available on a remote gateway')
+  },
   continueMerge: async () => ({ ok: false }),
   abortMerge: async () => ({ ok: false })
 }
