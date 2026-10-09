@@ -39,8 +39,6 @@ interface WindowLike {
   webContents: WebContentsLike
 }
 
-let didReportConsoleMessageSignatureDrift = false
-
 function isConsoleMessageDetails(value: unknown): value is ConsoleMessageDetails {
   if (typeof value !== 'object' || value === null) {
     return false
@@ -73,35 +71,11 @@ export function formatRendererConsoleLine(label: string, details: ConsoleMessage
 }
 
 /** Attach the error-level console hook to a renderer window. `log` is the
- *  desktop.log sink (rememberLog in main.ts).
- *
- *  Uses Electron 36+ event object signature: `(event)` where event carries
- *  `{ level, message, lineNumber, sourceUrl }`. The formatRendererConsoleLine
- *  helper still accepts the legacy positional args for any stragglers. */
+ *  desktop.log sink (rememberLog in main.ts). Uses Electron 36+ event object
+ *  signature: `(event)` where event carries `{ level, message, lineNumber, sourceUrl }`. */
 export function attachRendererConsoleCapture(win: WindowLike, label: string, log: (line: string) => void): void {
-win.webContents.on('console-message', (event: any) => {
-  if (!isConsoleMessageDetails(event)) {
-    if (!didReportConsoleMessageSignatureDrift) {
-      didReportConsoleMessageSignatureDrift = true
-      log('[renderer console] Electron console-message signature drift detected; renderer errors may not be captured')
-    }
-
-    // Fall back to legacy positional handling so straggler signatures are still captured
-    const details = event?.level !== undefined ? event : null
-    const level = details?.level ?? event
-    const message = details?.message
-    const line = details?.lineNumber
-    const sourceId = details?.sourceUrl
-    const formatted = formatRendererConsoleLine(label, level, message, line, sourceId)
-
-    if (formatted !== null) {
-      log(formatted)
-    }
-
-    return
-  }
-
-  const formatted = formatRendererConsoleLine(label, event)
+  win.webContents.on('console-message', (event: any) => {
+    const formatted = formatRendererConsoleLine(label, event)
 
     if (formatted !== null) {
       log(formatted)

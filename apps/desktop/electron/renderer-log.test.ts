@@ -63,7 +63,7 @@ describe('attachRendererConsoleCapture', () => {
     expect(log).toHaveBeenCalledWith('[renderer console:quick-entry] crash (src:2)')
   })
 
-  it('reports signature drift once across renderer windows', () => {
+  it('ignores malformed event objects without logging drift noise', () => {
     const log = vi.fn()
     const firstCapture = createWindowHarness()
     const secondCapture = createWindowHarness()
@@ -74,10 +74,9 @@ describe('attachRendererConsoleCapture', () => {
     firstCapture.getHandler()?.({})
     secondCapture.getHandler()?.({})
 
-    expect(log).toHaveBeenCalledTimes(1)
-    expect(log).toHaveBeenCalledWith(
-      '[renderer console] Electron console-message signature drift detected; renderer errors may not be captured'
-    )
+    // A malformed console event carries no error to capture; it must not emit
+    // log lines (Electron 36+ only ever passes the single event object).
+    expect(log).not.toHaveBeenCalled()
   })
 })
 
