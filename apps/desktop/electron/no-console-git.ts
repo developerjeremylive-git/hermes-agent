@@ -151,7 +151,12 @@ export function noConsoleGitEnv(base: NodeJS.ProcessEnv | undefined, gitBin: str
   const env: NodeJS.ProcessEnv = {}
 
   for (const [key, value] of Object.entries(base || {})) {
-    if (value !== undefined) {
+    // simple-git runs the tuple binary through its task/plugin runner, which
+    // refuses to spawn when `EDITOR` is set ("Use of \"EDITOR\" is not
+    // permitted without enabling allowUnsafeEditor"). None of these read-only
+    // probe commands (remote / rev-list / diff / status) open an editor, so
+    // drop the var rather than opting every call into an editor-unsafe mode.
+    if (value !== undefined && key !== 'EDITOR') {
       env[key] = value
     }
   }

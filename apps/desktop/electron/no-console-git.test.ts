@@ -12,6 +12,7 @@ import {
   execGit,
   killTimedGitChildren,
   NO_CONSOLE_GIT_SCRIPT,
+  noConsoleGitEnv,
   planNoConsoleGitSpawn,
   resolveNoConsolePython,
   simpleGitBinary
@@ -234,4 +235,21 @@ test('host script forwards git argv unchanged and sets CREATE_NO_WINDOW', () => 
   } finally {
     fs.rmSync(dir, { force: true, recursive: true })
   }
+})
+
+test('noConsoleGitEnv drops EDITOR so the tuple binary stays spawnable', () => {
+  // simple-git runs the tuple binary through its task/plugin runner, which
+  // refuses to spawn when EDITOR is set. Every caller here issues read-only
+  // probes, so the var is dropped rather than opting into allowUnsafeEditor.
+  const env = noConsoleGitEnv({ EDITOR: 'code --wait', HERMES_GIT_ARGV0: 'stale' }, gitBin)
+
+  expect(env).not.toHaveProperty('EDITOR')
+  expect(env.HERMES_GIT_ARGV0).toBe(JSON.stringify(gitBin))
+  expect(env.GIT_TERMINAL_PROMPT).toBe('0')
+})
+
+test('noConsoleGitEnv preserves the caller GIT_TERMINAL_PROMPT', () => {
+  const env = noConsoleGitEnv({ GIT_TERMINAL_PROMPT: '1' }, gitBin)
+
+  expect(env.GIT_TERMINAL_PROMPT).toBe('1')
 })
