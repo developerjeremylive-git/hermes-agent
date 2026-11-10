@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { setTimeout } from 'node:timers/promises'
@@ -84,6 +84,9 @@ export function productOutput(source, out, inputs) {
 // an antivirus scanner opens every freshly written exe. Node reports that as
 // EPERM/EACCES/EBUSY; it clears in moments, so ride it out (~3s) rather than
 // throw away a build that took minutes. Other codes never clear by waiting.
+// In dev mode a file watcher (Vite) keeps a handle on the destination's parent
+// indefinitely, so a rename that still fails after the retries falls back to a
+// recursive copy, which a watcher never blocks.
 const heldCodes = new Set(['EPERM', 'EACCES', 'EBUSY'])
 const heldRetryDelays = [100, 200, 400, 800, 1600]
 
@@ -98,6 +101,16 @@ export function retryHeld(operation) {
   }
 }
 
+function publishStaged(staged, out) {
+  try {
+    return retryHeld(() => renameSync(staged, out))
+  } catch (error) {
+    if (!heldCodes.has(error?.code)) throw error
+    cpSync(staged, out, { recursive: true })
+    rmSync(staged, { recursive: true, force: true })
+  }
+}
+
 // Never delete the last successful product before a compiler succeeds. The
 // backup lives beside out, outside withProduct's scratch tree, so a failed
 // rollback leaves the previous product somewhere a person can recover it.
@@ -105,7 +118,7 @@ export function publishDirectory(staged, out, { source } = {}) {
   // The destination may have been occupied while the compiler was running.
   requireOwnedOutput(out, source)
   writeFileSync(path.join(staged, productMarker), productOwner)
-  if (!existsSync(out)) return retryHeld(() => renameSync(staged, out))
+  if (!existsSync(out)) return publishStaged(staged, out)
   const backupRoot = mkdtempSync(path.join(path.dirname(out), `.${path.basename(out)}-previous-`))
   const backup = path.join(backupRoot, 'product')
   try {
@@ -115,7 +128,7 @@ export function publishDirectory(staged, out, { source } = {}) {
     throw error
   }
   try {
-    retryHeld(() => renameSync(staged, out))
+    publishStaged(staged, out)
   } catch (error) {
     try {
       retryHeld(() => renameSync(backup, out))
