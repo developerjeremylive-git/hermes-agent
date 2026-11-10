@@ -34,7 +34,7 @@ while True:
         with redirect_stdout(sys.stderr):
             endpoint = SimpleNamespace(**{'control_home': None, **request['endpoint']})
             home = Path(endpoint.profile_id)
-            if str(home.resolve()) != endpoint.profile_id or endpoint.runtime_protocol != 1:
+            if not home.is_absolute() or str(home.resolve()).casefold() != str(home).casefold() or endpoint.runtime_protocol != 1:
                 raise ValueError('invalid ticket endpoint')
             if os.name != 'nt':
                 _private_node(home, kind='directory', home=True)
@@ -43,8 +43,10 @@ while True:
         reply = {'id': request['id'], 'ticket': ticket}
     except DiscoveryError as exc:
         reply = {'id': request['id'], 'error': exc.reason}
-    except Exception:
-        reply = {'id': request['id'], 'error': 'ticket_failed'}
+    except Exception as exc:
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        reply = {'id': request['id'], 'error': f'ticket_failed: {exc}'}
     print(json.dumps(reply), flush=True)
 `
 
