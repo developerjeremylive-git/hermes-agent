@@ -325,9 +325,6 @@ importers:
       node-pty:
         specifier: 1.1.0
         version: 1.1.0
-      pele:
-        specifier: 1.13.0
-        version: 1.13.0
       proxy-from-env:
         specifier: 2.1.0
         version: 2.1.0
@@ -488,6 +485,9 @@ importers:
       jsdom:
         specifier: 29.1.1
         version: 29.1.1(@noble/hashes@2.4.0)
+      pele:
+        specifier: 1.13.0
+        version: 1.13.0
       plist:
         specifier: 3.1.0
         version: 3.1.0

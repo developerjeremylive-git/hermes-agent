@@ -313,7 +313,6 @@ import {
 } from './git-review-ops'
 import { gitRootForIpc } from './git-root'
 import { initRepository } from './git-worktree-ops'
-import { desktopBackendSpawnEnv, guestOnboardingEnabled } from './guest-onboarding'
 import { readAndConsumeHandoffResult } from './handoff-result'
 import {
   assertExistingPathForOpen,
